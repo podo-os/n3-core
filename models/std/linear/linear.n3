@@ -1,0 +1,5 @@
+extern [Linear]
+  * bias = 1
+
+  #0 fixed = Ic
+  #1 fixed = Oc

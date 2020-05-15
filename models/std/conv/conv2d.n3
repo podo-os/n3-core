@@ -1,0 +1,6 @@
+extern [Conv2d]
+  * kernel size
+  * S: stride = 1
+
+  #0 fixed = Ic, H, W
+  #1 fixed = Oc, H/S, W/S
