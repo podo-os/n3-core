@@ -12,6 +12,7 @@ use symengine::{Expression, ExpressionMap, ExpressionMapKey};
 #[derive(Clone, Debug, Default)]
 pub struct Graph {
     variables: HashMap<String, Variable>,
+    variable_aliases: HashMap<String, String>,
     keys: ExpressionMap<DimKey>,
 
     graphs: HashMap<String, Graph>,
@@ -21,37 +22,86 @@ pub struct Graph {
 }
 
 impl Graph {
-    pub fn from_uses(graphs: HashMap<String, Graph>) -> Self {
-        Self {
+    pub(crate) fn new_child(&mut self, name: &str) -> Result<&mut Self, CompileError> {
+        let child = Self {
             variables: HashMap::new(),
+            variable_aliases: HashMap::new(),
             keys: ExpressionMap::new(),
-            graphs,
+            graphs: self.graphs.clone(),
             nodes: BTreeMap::new(),
             shape_state: ShapeState::default(),
-        }
+        };
+        self.add_graph(name.to_string(), child)?;
+        Ok(self.graphs.get_mut(name).unwrap())
     }
 }
 
 impl Graph {
-    #[allow(clippy::map_entry)]
-    pub fn add_variable(&mut self, name: String, variable: Variable) -> Result<(), GraphError> {
-        if self.variables.contains_key(&name) {
+    pub(crate) fn add_variable(
+        &mut self,
+        alias: Option<String>,
+        variable: Variable,
+    ) -> Result<(), GraphError> {
+        let name = &variable.description;
+        if self.variables.contains_key(name) {
+            if let Some(value) = variable.unwrap_uint() {
+                self.keys.insert(DimKey::Variable(name.clone()), value);
+            }
             if let Some(value) = variable.value {
-                self.update_variable(name, value, variable.ty)?;
+                self.update_variable(Some(variable.description), alias, value, variable.ty)?;
             }
         } else {
-            self.variables.insert(name, variable);
+            if let Some(alias) = alias {
+                self.variable_aliases.insert(alias, name.clone());
+            }
+            self.variables.insert(name.clone(), variable);
         }
         Ok(())
     }
 
-    pub fn add_graph(&mut self, name: String, graph: Self) -> Result<(), CompileError> {
-        // TODO: merge & validate variable types
+    pub(crate) fn update_variable(
+        &mut self,
+        name: Option<String>,
+        alias: Option<String>,
+        value: ast::Value,
+        ty: ValueType,
+    ) -> Result<(), GraphError> {
+        if let Some(name) = name {
+            match self.variables.get_mut(&name) {
+                Some(var) => {
+                    var.update(value, ty)?;
+                    if let Some(alias) = alias {
+                        self.variable_aliases.insert(alias, name.clone());
+                    }
+                    if let Some(value) = var.unwrap_uint() {
+                        self.keys.insert(DimKey::Variable(name), value);
+                    }
+                    Ok(())
+                }
+                None => Err(GraphError::NoSuchVariable { name }),
+            }
+        } else if let Some(alias) = alias {
+            if let Some(name) = self.variable_aliases.get(&alias) {
+                let name = name.clone();
+                self.update_variable(Some(name), None, value, ty)
+            } else {
+                self.update_variable(Some(alias), None, value, ty)
+            }
+        } else {
+            unreachable!("either name or alias is needed")
+        }
+    }
+
+    pub(crate) fn add_graph(&mut self, name: String, graph: Self) -> Result<(), CompileError> {
         self.graphs.entry(name).or_insert_with(|| graph);
         Ok(())
     }
 
-    pub fn attach(
+    pub(crate) fn update_graph(&mut self, name: &str) -> Option<&mut Self> {
+        self.graphs.get_mut(name)
+    }
+
+    pub(crate) fn attach(
         &mut self,
         id: GraphId,
         name: String,
@@ -144,7 +194,7 @@ impl Graph {
                             unimplemented!();
                         } else if let ast::GraphPassArg::Keyword { name, value } = arg {
                             let ty = ValueType::new(Some(&value), false);
-                            if let Err(error) = graph.update_variable(name, value, ty) {
+                            if let Err(error) = graph.update_variable(None, Some(name), value, ty) {
                                 return Err(CompileError::GraphError {
                                     error,
                                     model: model_name,
@@ -182,7 +232,7 @@ impl Graph {
         Ok(())
     }
 
-    pub fn adjust_shape(&mut self, shape: ast::Shape) -> Result<(), CompileError> {
+    pub(crate) fn adjust_shape(&mut self, shape: ast::Shape) -> Result<(), CompileError> {
         let mut is_new_var_created = false;
         let shape: Vec<_> = shape
             .0
@@ -226,7 +276,8 @@ impl Graph {
 }
 
 impl Graph {
-    pub fn finalize(&mut self) -> Result<(), CompileError> {
+    pub(crate) fn finalize(&mut self) -> Result<(), CompileError> {
+        self.graphs.clear();
         match self.shape_state {
             ShapeState::Fixed(FitState::Full) => Ok(()),
             _ => Err(CompileError::GraphError {
@@ -284,9 +335,8 @@ impl Graph {
                     ast::DimOp::Sub => Ok(lhs - rhs),
                     ast::DimOp::Mul => Ok(lhs * rhs),
                     ast::DimOp::Div => {
-                        let rhs = self.eval_dim(rhs);
-                        if let Dim::Expr(rhs) = &rhs {
-                            if rhs == &0u64 {
+                        if let Dim::Expr(rhs) = self.eval_dim(rhs.clone()) {
+                            if rhs == 0u64 {
                                 return Err(CompileError::GraphError {
                                     error: GraphError::DivideByZero {
                                         id: *self.get_last_node_id(),
@@ -315,15 +365,14 @@ impl Graph {
         if self.keys.contains_key(&key) {
             return Ok(Dim::Key(key));
         }
-        let var = key.into_name();
+        let mut var = key.into_name();
+        if let Some(alias) = self.variable_aliases.get(&var) {
+            var = alias.clone();
+        }
         if let Some(graph_var) = self.variables.get_mut(&var) {
             match graph_var.expect_or_default(ValueType::UInt) {
                 Ok(()) => {
                     let key = DimKey::Variable(var);
-                    if !self.keys.contains_key(&key) {
-                        let value = Expression::new(key.to_string());
-                        self.keys.insert(key.clone(), value);
-                    }
                     Ok(Dim::Key(key))
                 }
                 Err(error) => Err(CompileError::GraphError {
@@ -348,9 +397,13 @@ impl Graph {
     }
 
     fn eval_dim(&self, dim: Dim) -> Dim {
+        Self::eval_dim_with_keys(&self.keys, dim)
+    }
+
+    fn eval_dim_with_keys(keys: &ExpressionMap<DimKey>, dim: Dim) -> Dim {
         match dim {
             Dim::Key(DimKey::Placeholder(_, _)) => dim,
-            _ => Dim::Expr(self.keys.eval(&dim.into_expr())),
+            _ => Dim::Expr(keys.eval_once(&dim.into_expr())),
         }
     }
 
@@ -389,37 +442,20 @@ impl Graph {
             },
             _ => {
                 let dim = self.eval_dim(dim.clone());
-                let ground = self.eval_dim(ground.clone());
+                let ground = ground.clone();
+                let ground_eval = self.eval_dim(ground.clone());
 
-                if dim == ground {
+                if dim == ground_eval {
                     Ok(ground)
                 } else {
                     Err(GraphError::DifferentDimension {
                         id,
                         axis,
                         expected: dim,
-                        given: ground,
+                        given: ground_eval,
                     })
                 }
             }
-        }
-    }
-
-    fn update_variable(
-        &mut self,
-        name: String,
-        value: ast::Value,
-        ty: ValueType,
-    ) -> Result<(), GraphError> {
-        match self.variables.get_mut(&name) {
-            Some(var) => {
-                var.update(value, ty)?;
-                if let Some(value) = var.unwrap_uint() {
-                    self.keys.insert(DimKey::Variable(name), value);
-                }
-                Ok(())
-            }
-            None => Err(GraphError::NoSuchVariable { name }),
         }
     }
 

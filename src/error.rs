@@ -41,6 +41,8 @@ pub enum ExternModelError {
 pub enum NonExternModelError {
     NoGraph,
     ModelNotFound,
+    OverrideChild,
+    OverrideGraph,
 }
 
 #[derive(Debug)]
@@ -64,6 +66,9 @@ pub enum GraphError {
         id: GraphId,
     },
     NoSuchVariable {
+        name: String,
+    },
+    NoVariableValue {
         name: String,
     },
     CannotEstimateShape {

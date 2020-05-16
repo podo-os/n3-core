@@ -13,6 +13,7 @@ impl Variable {
     pub fn update(&mut self, value: Value, ty: ValueType) -> Result<(), GraphError> {
         if self.ty == ty || self.ty == ValueType::Required {
             self.value = Some(value);
+            self.ty = ty;
             Ok(())
         } else {
             Err(GraphError::DifferentVariableType {

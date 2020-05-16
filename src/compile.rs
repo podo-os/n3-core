@@ -1,4 +1,4 @@
-use crate::error::{CompileError, ExternModelError, NonExternModelError};
+use crate::error::{CompileError, ExternModelError, GraphError, NonExternModelError};
 use crate::graphs::*;
 
 use n3_parser::ast;
@@ -49,16 +49,66 @@ impl<'a> Compile<'a> for ast::Model {
                     model: self.name,
                 });
             }
-        } else if self.inner.graph.is_empty() {
-            return Err(CompileError::NonExternModelError {
-                error: NonExternModelError::NoGraph,
-                model: self.name,
-            });
+        } else {
+            for model in self.inner.children {
+                match graph.update_graph(&model.name) {
+                    Some(prefab) => {
+                        if !model.inner.children.is_empty() {
+                            return Err(CompileError::NonExternModelError {
+                                error: NonExternModelError::OverrideChild,
+                                model: model.name,
+                            });
+                        }
+
+                        if !model.inner.graph.is_empty() {
+                            return Err(CompileError::NonExternModelError {
+                                error: NonExternModelError::OverrideGraph,
+                                model: model.name,
+                            });
+                        }
+
+                        for variable in model.inner.variables {
+                            let (name, variable) = variable.compile(())?;
+                            let description = variable.description;
+                            let ty = variable.ty;
+                            if let Some(variable) = variable.value {
+                                if let Err(error) = prefab.update_variable(
+                                    Some(description),
+                                    Some(name),
+                                    variable,
+                                    ty,
+                                ) {
+                                    return Err(CompileError::GraphError {
+                                        error,
+                                        model: model.name,
+                                    });
+                                }
+                            } else {
+                                return Err(CompileError::GraphError {
+                                    error: GraphError::NoVariableValue { name },
+                                    model: model.name,
+                                });
+                            }
+                        }
+                    }
+                    None => {
+                        let mut prefab = graph.new_child(&model.name)?;
+                        model.compile(&mut prefab)?;
+                    }
+                }
+            }
+
+            if self.inner.graph.is_empty() {
+                return Err(CompileError::NonExternModelError {
+                    error: NonExternModelError::NoGraph,
+                    model: self.name,
+                });
+            }
         }
 
         for variable in self.inner.variables {
             let (name, variable) = variable.compile(())?;
-            if let Err(error) = graph.add_variable(name, variable) {
+            if let Err(error) = graph.add_variable(Some(name), variable) {
                 return Err(CompileError::GraphError {
                     error,
                     model: self.name,

@@ -3,6 +3,7 @@ use std::ops;
 use super::id::GraphId;
 use crate::error::GraphError;
 
+use heck::CamelCase;
 use symengine::{Expression, ExpressionMapKey};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -144,8 +145,8 @@ pub enum DimKey {
 impl ExpressionMapKey for DimKey {
     fn to_string(&self) -> String {
         match self {
-            Self::Variable(var) => format!("var_{}", var),
-            Self::Placeholder(ph, _) => format!("ph_{}", ph),
+            Self::Variable(var) => format!("var_{}", var.to_camel_case()),
+            Self::Placeholder(ph, _) => format!("ph_{}", ph.to_camel_case()),
         }
     }
 }
