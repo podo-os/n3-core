@@ -8,5 +8,7 @@ fn test_compile_local() {
 
     let mut root = n3_core::GraphRoot::new(path).unwrap();
 
-    dbg!(root.find_graph("LeNet Trainer", ast::UseOrigin::Local).unwrap());
+    dbg!(root
+        .find_graph("LeNet Trainer", ast::UseOrigin::Local)
+        .unwrap());
 }

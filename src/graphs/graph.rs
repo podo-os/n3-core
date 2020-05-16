@@ -142,15 +142,24 @@ impl Graph {
                     Node::default()
                 }
                 Ok(false) => {
-                    self.shape_state = ShapeState::Required(FitState::Full);
-                    Node::default()
+                    if self.nodes.is_empty() {
+                        self.shape_state = ShapeState::Required(FitState::Full);
+                        Node::default()
+                    } else {
+                        return Err(CompileError::GraphError {
+                            error: GraphError::FullShapeRequired { id },
+                            model: name,
+                        });
+                    }
                 }
                 Err(error) => return Err(CompileError::GraphError { error, model: name }),
             },
             Node::INTRINSIC_FIXED => {
                 self.shape_state = match &self.shape_state {
-                    ShapeState::Fixed(_) => ShapeState::Required(FitState::Weak),
-                    ShapeState::Required(_) | ShapeState::Transform => {
+                    ShapeState::Fixed(_) | ShapeState::Required(_) => {
+                        ShapeState::Required(FitState::Weak)
+                    }
+                    ShapeState::Transform => {
                         return Err(CompileError::GraphError {
                             error: GraphError::ShapeNotDefined { id },
                             model: name,
