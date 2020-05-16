@@ -91,7 +91,7 @@ impl<'a> Compile<'a> for ast::Variable {
 
         let variable = Variable {
             description: self.description,
-            ty: ValueType::new(self.default.as_ref()),
+            ty: ValueType::new(self.default.as_ref(), self.is_model),
             value: self.default,
         };
 

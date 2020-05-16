@@ -37,7 +37,7 @@ impl Graph {
     pub fn add_variable(&mut self, name: String, variable: Variable) -> Result<(), GraphError> {
         if self.variables.contains_key(&name) {
             if let Some(value) = variable.value {
-                self.update_variable(name, value)?;
+                self.update_variable(name, value, variable.ty)?;
             }
         } else {
             self.variables.insert(name, variable);
@@ -143,7 +143,8 @@ impl Graph {
                         if let ast::GraphPassArg::Node(nodes) = arg {
                             unimplemented!();
                         } else if let ast::GraphPassArg::Keyword { name, value } = arg {
-                            if let Err(error) = graph.update_variable(name, value) {
+                            let ty = ValueType::new(Some(&value), false);
+                            if let Err(error) = graph.update_variable(name, value, ty) {
                                 return Err(CompileError::GraphError {
                                     error,
                                     model: model_name,
@@ -306,10 +307,16 @@ impl Graph {
         var: String,
         is_new_var_created: &mut bool,
     ) -> Result<Dim, CompileError> {
-        let key = DimKey::Placeholder(var.clone());
+        let key = DimKey::Placeholder(var, true);
         if self.keys.contains_key(&key) {
-            Ok(Dim::Key(DimKey::Placeholder(var)))
-        } else if let Some(graph_var) = self.variables.get_mut(&var) {
+            return Ok(Dim::Key(key));
+        }
+        let key = DimKey::Placeholder(key.into_name(), false);
+        if self.keys.contains_key(&key) {
+            return Ok(Dim::Key(key));
+        }
+        let var = key.into_name();
+        if let Some(graph_var) = self.variables.get_mut(&var) {
             match graph_var.expect_or_default(ValueType::UInt) {
                 Ok(()) => {
                     let key = DimKey::Variable(var);
@@ -326,8 +333,7 @@ impl Graph {
             }
         } else if self.shape_state.is_new_var_available() {
             *is_new_var_created = true;
-
-            let key = DimKey::Placeholder(var);
+            let key = DimKey::Placeholder(var, self.get_last_node_id().node == 0);
             let value = Expression::new(key.to_string());
             self.keys.insert(key.clone(), value);
             Ok(Dim::Key(key))
@@ -343,7 +349,7 @@ impl Graph {
 
     fn eval_dim(&self, dim: Dim) -> Dim {
         match dim {
-            Dim::Key(DimKey::Placeholder(_)) => dim,
+            Dim::Key(DimKey::Placeholder(_, _)) => dim,
             _ => Dim::Expr(self.keys.eval(&dim.into_expr())),
         }
     }
@@ -356,10 +362,19 @@ impl Graph {
         axis: usize,
     ) -> Result<Dim, GraphError> {
         match dim {
-            Dim::Key(DimKey::Placeholder(ph)) => match ground {
-                Dim::Key(DimKey::Placeholder(ground)) => {
+            Dim::Key(DimKey::Placeholder(ph, ph_is_input)) => match ground {
+                Dim::Key(DimKey::Placeholder(ground, ground_is_input)) => {
                     if ph == ground {
-                        Ok(Dim::Key(DimKey::Placeholder(ground.clone())))
+                        Ok(Dim::Key(DimKey::Placeholder(
+                            ground.clone(),
+                            *ground_is_input,
+                        )))
+                    } else if *ph_is_input && *ground_is_input {
+                        let key = DimKey::Placeholder(ph.clone(), *ph_is_input);
+                        let ground = DimKey::Placeholder(ground.clone(), *ph_is_input);
+                        let ground = Expression::new(ground.to_string());
+                        self.keys.insert(key, ground.clone());
+                        Ok(Dim::Expr(ground))
                     } else {
                         Err(GraphError::CannotEstimateShape { id, axis })
                     }
@@ -367,7 +382,7 @@ impl Graph {
                 _ => {
                     let ground = ground.clone().into_expr();
 
-                    let key = DimKey::Placeholder(ph.clone());
+                    let key = DimKey::Placeholder(ph.clone(), *ph_is_input);
                     self.keys.insert(key, ground.clone());
                     Ok(Dim::Expr(ground))
                 }
@@ -390,10 +405,15 @@ impl Graph {
         }
     }
 
-    fn update_variable(&mut self, name: String, value: ast::Value) -> Result<(), GraphError> {
+    fn update_variable(
+        &mut self,
+        name: String,
+        value: ast::Value,
+        ty: ValueType,
+    ) -> Result<(), GraphError> {
         match self.variables.get_mut(&name) {
             Some(var) => {
-                var.update(value)?;
+                var.update(value, ty)?;
                 if let Some(value) = var.unwrap_uint() {
                     self.keys.insert(DimKey::Variable(name), value);
                 }

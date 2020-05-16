@@ -10,8 +10,7 @@ pub struct Variable {
 }
 
 impl Variable {
-    pub fn update(&mut self, value: Value) -> Result<(), GraphError> {
-        let ty = ValueType::new(Some(&value));
+    pub fn update(&mut self, value: Value, ty: ValueType) -> Result<(), GraphError> {
         if self.ty == ty || self.ty == ValueType::Required {
             self.value = Some(value);
             Ok(())
@@ -58,7 +57,10 @@ pub enum ValueType {
 }
 
 impl ValueType {
-    pub fn new(value: Option<&Value>) -> Self {
+    pub fn new(value: Option<&Value>, is_model: bool) -> Self {
+        if is_model {
+            return Self::Model;
+        }
         match value {
             Some(Value::Bool(_)) => Self::Bool,
             Some(Value::Int(_)) => Self::Int,

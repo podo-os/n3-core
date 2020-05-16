@@ -138,14 +138,23 @@ impl ops::Div for Dim {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DimKey {
     Variable(String),
-    Placeholder(String),
+    Placeholder(String, bool),
 }
 
 impl ExpressionMapKey for DimKey {
     fn to_string(&self) -> String {
         match self {
             Self::Variable(var) => format!("var_{}", var),
-            Self::Placeholder(ph) => format!("ph_{}", ph),
+            Self::Placeholder(ph, _) => format!("ph_{}", ph),
+        }
+    }
+}
+
+impl DimKey {
+    pub fn into_name(self) -> String {
+        match self {
+            Self::Variable(var) => var,
+            Self::Placeholder(ph, _) => ph,
         }
     }
 }

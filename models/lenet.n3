@@ -15,8 +15,8 @@ use Transform
   [Softmax]
     * axis = -1
 
-  #0 Input Gray image = 1, 28, 28
-  #1 Conv2d (S=2) + ReLU = 32, 14, 14
-  #2 Conv2d (S=2) + ReLU = 64, 7, 7
-  #3 Transform = 64 * 7 * 7
-  #4 Linear + Softmax = 10
+  #0 Input Gray image = Ic, H, W
+  #1 Conv2d (S=2) + ReLU = 32, H/2, W/2
+  #2 Conv2d (S=2) + ReLU = 64, H/4, W/4
+  #3 Transform = 64 * H/4 * W/4
+  #4 Linear + Softmax = Oc

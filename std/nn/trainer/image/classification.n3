@@ -1,0 +1,6 @@
+extern [Image Classification]
+
+  * [Optimizer]
+
+  #0 fixed = Ic
+  #1 fixed = 2
