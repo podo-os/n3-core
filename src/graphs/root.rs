@@ -52,6 +52,7 @@ impl GraphRoot {
                 ast::UseOrigin::Local => self.load_graph_local(name),
             }?;
             self.compiling.remove(name);
+            self.graphs.insert(name.to_string(), model.clone());
             Ok(model)
         } else {
             recursive_model(name, origin)
