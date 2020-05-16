@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::graph::Graph;
 use crate::compile::Compile;
 use crate::error::{CompileError, ModelError};
 
+use include_dir::{include_dir, Dir};
 use n3_parser::ast;
 use n3_parser::parser;
 
@@ -74,6 +75,8 @@ impl GraphRoot {
     }
 }
 
+static STD_DIR: Dir<'static> = include_dir!("std");
+
 #[cfg(not(target_arch = "wasm32"))]
 impl GraphRoot {
     fn load_graph_prefabs(pwd: PathBuf) -> Result<HashMap<String, ast::File>, CompileError> {
@@ -83,13 +86,19 @@ impl GraphRoot {
             .filter_map(|e| e.ok())
             .filter(|r| !r.metadata().map(|m| m.is_dir()).unwrap_or(true))
             .map(|r| r.path().into())
-            .map(Self::load_graph_prefab)
+            .filter_map(|p| {
+                let source = fs::read_to_string(&p).ok()?;
+                Some((p, source))
+            })
+            .chain(Self::load_graph_prefabs_embed())
+            .map(|(p, s)| Self::load_graph_prefab(p, s))
             .collect()
     }
 
-    fn load_graph_prefab(path: PathBuf) -> Result<(String, ast::File), CompileError> {
-        let source = fs::read_to_string(&path)?;
-
+    fn load_graph_prefab(
+        path: PathBuf,
+        source: String,
+    ) -> Result<(String, ast::File), CompileError> {
         let ast = parser::parse_file(&source)
             .or_else(|e| Err(CompileError::ParseError { error: e, path }))?;
 
@@ -97,12 +106,24 @@ impl GraphRoot {
 
         Ok((name, ast))
     }
+
+    fn load_graph_prefabs_embed() -> Vec<(PathBuf, String)> {
+        STD_DIR
+            .find("**/*.n3")
+            .unwrap()
+            .filter_map(|r| STD_DIR.get_file(r.path()))
+            .filter_map(|p| p.contents_utf8().map(|s| (p.path().into(), s.to_string())))
+            .collect()
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 impl GraphRoot {
     fn load_graph_prefabs(_pwd: PathBuf) -> Result<HashMap<String, ast::File>, CompileError> {
-        Ok(HashMap::new())
+        Self::load_graph_prefabs_embed()
+            .into_iter()
+            .map(Self::load_graph_prefab)
+            .collect()
     }
 }
 
