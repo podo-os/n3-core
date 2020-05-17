@@ -166,8 +166,8 @@ impl<'a> Compile<'a> for ast::Graph {
             }
         }
 
-        if let Some(shape) = self.shape {
-            graph.adjust_shape(shape)
+        if let Some(shapes) = self.shapes {
+            graph.adjust_shapes(shapes)
         } else {
             Ok(())
         }

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::ops;
 
 use super::id::GraphId;
@@ -40,6 +41,60 @@ impl ShapeState {
 }
 
 #[derive(Clone, Debug)]
+pub enum Shapes {
+    Dynamic,
+    Fixed(BTreeMap<u64, Shape>),
+}
+
+impl Shapes {
+    pub fn product(self) -> Self {
+        match self {
+            Self::Dynamic => self,
+            Self::Fixed(shapes) => {
+                let shapes = shapes
+                    .into_iter()
+                    .map(|(arg, shape)| {
+                        let shape = shape.product();
+                        (arg, shape)
+                    })
+                    .collect();
+                Self::Fixed(shapes)
+            }
+        }
+    }
+
+    pub fn validate_args_rank(&self, last: &Self, id: &GraphId) -> Result<bool, GraphError> {
+        match (self, last) {
+            (Self::Fixed(shapes), Self::Fixed(last_shapes)) => {
+                let args = shapes.keys().cloned().collect();
+                let last_args = last_shapes.keys().cloned().collect();
+                if args == last_args {
+                    shapes
+                        .iter()
+                        .zip(last_shapes.values())
+                        .map(|((arg, a), b)| a.validate_rank(b, id, arg))
+                        .fold(Ok(true), |a, b| Ok(a? == b?))
+                } else {
+                    Err(GraphError::DifferentArgs {
+                        id: *id,
+                        last_args,
+                        args,
+                    })
+                }
+            }
+            _ => Ok(false),
+        }
+    }
+
+    pub fn unwrap_shapes(&self) -> &BTreeMap<u64, Shape> {
+        match self {
+            Self::Fixed(shapes) => shapes,
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum Shape {
     Dynamic,
     Fixed(Vec<Dim>),
@@ -62,7 +117,7 @@ impl Shape {
         }
     }
 
-    pub fn validate_rank(&self, last: &Self, id: &GraphId) -> Result<bool, GraphError> {
+    pub fn validate_rank(&self, last: &Self, id: &GraphId, arg: &u64) -> Result<bool, GraphError> {
         match (self, last) {
             (Self::Fixed(dims), Self::Fixed(last_dims)) => {
                 let rank = dims.len();
@@ -72,6 +127,7 @@ impl Shape {
                 } else {
                     Err(GraphError::DifferentRank {
                         id: *id,
+                        arg: *arg,
                         last_rank,
                         rank,
                     })

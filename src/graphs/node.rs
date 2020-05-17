@@ -1,11 +1,11 @@
 use super::graph::Graph;
-use super::shape::Shape;
+use super::shape::Shapes;
 
 #[derive(Clone, Debug)]
 pub struct Node {
     pub name: String,
     pub graph: Option<Graph>,
-    pub shape: Shape,
+    pub shapes: Shapes,
 }
 
 impl Node {
@@ -21,7 +21,7 @@ impl Default for Node {
         Self {
             name: Self::INTRINSIC_GENERIC.to_string(),
             graph: None,
-            shape: Shape::Dynamic,
+            shapes: Shapes::Dynamic,
         }
     }
 }

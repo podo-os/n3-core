@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use super::id::GraphId;
 use super::node::Node;
-use super::shape::{Dim, DimKey, FitState, Shape, ShapeState};
+use super::shape::{Dim, DimKey, FitState, Shape, ShapeState, Shapes};
 use super::variable::{Value, ValueType, Variable};
 use crate::error::{CompileError, GraphError, NonExternModelError};
 
@@ -169,7 +169,7 @@ impl Graph {
                 Node {
                     name,
                     graph: None,
-                    shape: Shape::Dynamic,
+                    shapes: Shapes::Dynamic,
                 }
             }
             Node::INTRINSIC_IDENTITY => {
@@ -177,7 +177,7 @@ impl Graph {
                     Node {
                         name,
                         graph: None,
-                        shape: self.get_last_shape().clone(),
+                        shapes: self.get_last_shapes().clone(),
                     }
                 } else {
                     return Err(CompileError::GraphError {
@@ -194,12 +194,12 @@ impl Graph {
                     Node {
                         name,
                         graph: None,
-                        shape: Shape::Dynamic,
+                        shapes: Shapes::Dynamic,
                     }
                 } else if let Some(mut graph) = self.graphs.get(&name).cloned() {
                     let model_name = name;
                     for arg in args {
-                        if let ast::GraphPassArg::Node(nodes) = arg {
+                        if let ast::GraphPassArg::NodeArg(nodes) = arg {
                             unimplemented!();
                         } else if let ast::GraphPassArg::Keyword { name, value } = arg {
                             let ty = ValueType::new(Some(&value), false);
@@ -212,8 +212,8 @@ impl Graph {
                         }
                     }
 
-                    let shape = match self.apply_shape_as_input(&mut graph, id) {
-                        Ok(shape) => shape,
+                    let shapes = match self.apply_shapes_as_input(&mut graph, id) {
+                        Ok(shapes) => shapes,
                         Err(error) => {
                             return Err(CompileError::GraphError {
                                 error,
@@ -226,7 +226,7 @@ impl Graph {
                     Node {
                         name: model_name,
                         graph: Some(graph),
-                        shape,
+                        shapes,
                     }
                 } else {
                     return Err(CompileError::NonExternModelError {
@@ -241,32 +241,45 @@ impl Graph {
         Ok(())
     }
 
-    pub(crate) fn adjust_shape(&mut self, shape: ast::Shape) -> Result<(), CompileError> {
+    pub(crate) fn adjust_shapes(&mut self, shapes: ast::Shapes) -> Result<(), CompileError> {
         let mut is_new_var_created = false;
-        let shape: Vec<_> = shape
+        let shapes = shapes
             .0
             .into_iter()
-            .map(|d| self.convert_dim(d, &mut is_new_var_created))
-            .collect::<Result<_, _>>()?;
-        let mut shape = Shape::Fixed(shape);
-        let shape_to = shape.clone();
+            .map(|(arg, shape): (u64, ast::Shape)| {
+                let shape = shape
+                    .0
+                    .into_iter()
+                    .map(|d| self.convert_dim(d, arg, &mut is_new_var_created))
+                    .collect::<Result<_, _>>()?;
+                Ok((arg, Shape::Fixed(shape)))
+            })
+            .collect::<Result<_, CompileError>>()?;
+        let mut shapes = Shapes::Fixed(shapes);
+        let shapes_to = shapes.clone();
 
         let (&id, last_node) = self.nodes.last_key_value().unwrap();
         let model = last_node.name.clone();
-        let mut last_shape = last_node.shape.clone();
+        let mut last_shapes = last_node.shapes.clone();
 
         if self.shape_state == ShapeState::Transform {
-            shape = shape.product();
-            last_shape = last_shape.product();
+            shapes = shapes.product();
+            last_shapes = last_shapes.product();
         }
 
-        match shape.validate_rank(&last_shape, &id) {
+        match shapes.validate_args_rank(&last_shapes, &id) {
             Ok(true) => {
-                let last_dims = last_shape.unwrap_dims();
-                let dims = shape.unwrap_dims();
-                for (axis, (last_dim, dim)) in last_dims.iter().zip(dims).enumerate() {
-                    if let Err(error) = self.update_dim(id, last_dim, dim, axis) {
-                        return Err(CompileError::GraphError { error, model });
+                for ((&arg, last_shape), shape) in last_shapes
+                    .unwrap_shapes()
+                    .iter()
+                    .zip(shapes.unwrap_shapes().values())
+                {
+                    let last_dims = last_shape.unwrap_dims();
+                    let dims = shape.unwrap_dims();
+                    for (axis, (last_dim, dim)) in last_dims.iter().zip(dims).enumerate() {
+                        if let Err(error) = self.update_dim(id, arg, last_dim, dim, axis) {
+                            return Err(CompileError::GraphError { error, model });
+                        }
                     }
                 }
             }
@@ -274,7 +287,7 @@ impl Graph {
             Err(error) => return Err(CompileError::GraphError { error, model }),
         }
 
-        self.nodes.last_entry().unwrap().get_mut().shape = shape_to;
+        self.nodes.last_entry().unwrap().get_mut().shapes = shapes_to;
         self.shape_state = ShapeState::Fixed(if is_new_var_created {
             FitState::Weak
         } else {
@@ -300,29 +313,50 @@ impl Graph {
 }
 
 impl Graph {
-    fn apply_shape_as_input(&self, target: &mut Self, id: GraphId) -> Result<Shape, GraphError> {
+    fn apply_shapes_as_input(&self, target: &mut Self, id: GraphId) -> Result<Shapes, GraphError> {
         let node = &self.nodes.last_key_value().unwrap().1;
-        let shape = &node.shape;
-        let target_shape = &target.nodes.first_key_value().unwrap().1.shape;
+        let shapes = &node.shapes;
+        let target_shapes = target.nodes.first_key_value().unwrap().1.shapes.clone();
 
-        if target_shape.validate_rank(shape, &id)? {
-            let dims = shape.unwrap_dims();
-            let target_dims = target_shape.unwrap_dims().to_vec();
-            let shape = dims
+        if target_shapes.validate_args_rank(shapes, &id)? {
+            let shapes = shapes
+                .unwrap_shapes()
                 .iter()
-                .zip(target_dims)
-                .enumerate()
-                .map(|(axis, (dim, target_dim))| target.update_dim(id, &target_dim, dim, axis))
+                .zip(target_shapes.unwrap_shapes().values())
+                .map(|((&arg, shape), target_shape)| {
+                    let dims = shape.unwrap_dims();
+                    let target_dims = target_shape.unwrap_dims().to_vec();
+                    let shape = dims
+                        .iter()
+                        .zip(target_dims)
+                        .enumerate()
+                        .map(|(axis, (dim, target_dim))| {
+                            target.update_dim(id, arg, &target_dim, dim, axis)
+                        })
+                        .collect::<Result<_, _>>()?;
+
+                    Ok((arg, Shape::Fixed(shape)))
+                })
                 .collect::<Result<_, _>>()?;
 
-            let shape = match &target.nodes.last_key_value().unwrap().1.shape {
-                Shape::Dynamic => shape,
-                Shape::Fixed(dims) => dims.iter().map(|d| target.eval_dim(d.clone())).collect(),
+            let shapes = match &target.nodes.last_key_value().unwrap().1.shapes {
+                Shapes::Dynamic => shapes,
+                Shapes::Fixed(shapes) => shapes
+                    .iter()
+                    .map(|(arg, shape)| {
+                        let shape = shape
+                            .unwrap_dims()
+                            .iter()
+                            .map(|d| target.eval_dim(d.clone()))
+                            .collect();
+                        Ok((*arg, Shape::Fixed(shape)))
+                    })
+                    .collect::<Result<_, _>>()?,
             };
 
-            Ok(Shape::Fixed(shape))
-        } else if let Shape::Dynamic = target_shape {
-            Ok(shape.clone())
+            Ok(Shapes::Fixed(shapes))
+        } else if let Shapes::Dynamic = target_shapes {
+            Ok(shapes.clone())
         } else {
             unimplemented!()
         }
@@ -331,14 +365,15 @@ impl Graph {
     fn convert_dim(
         &mut self,
         dim: ast::Dim,
+        arg: u64,
         is_new_var_created: &mut bool,
     ) -> Result<Dim, CompileError> {
         match dim {
             ast::Dim::Fixed(dim) => Ok(Dim::Expr(dim.into())),
             ast::Dim::Semantic(var) => self.find_var(var, is_new_var_created),
             ast::Dim::Expr { lhs, rhs, op } => {
-                let lhs = self.convert_dim(*lhs, is_new_var_created)?;
-                let rhs = self.convert_dim(*rhs, is_new_var_created)?;
+                let lhs = self.convert_dim(*lhs, arg, is_new_var_created)?;
+                let rhs = self.convert_dim(*rhs, arg, is_new_var_created)?;
                 match op {
                     ast::DimOp::Add => Ok(lhs + rhs),
                     ast::DimOp::Sub => Ok(lhs - rhs),
@@ -349,6 +384,7 @@ impl Graph {
                                 return Err(CompileError::GraphError {
                                     error: GraphError::DivideByZero {
                                         id: *self.get_last_node_id(),
+                                        arg,
                                     },
                                     model: self.get_last_node_name().to_string(),
                                 });
@@ -419,6 +455,7 @@ impl Graph {
     fn update_dim(
         &mut self,
         id: GraphId,
+        arg: u64,
         dim: &Dim,
         ground: &Dim,
         axis: usize,
@@ -438,7 +475,7 @@ impl Graph {
                         self.keys.insert(key, ground.clone());
                         Ok(Dim::Expr(ground))
                     } else {
-                        Err(GraphError::CannotEstimateShape { id, axis })
+                        Err(GraphError::CannotEstimateShape { id, arg, axis })
                     }
                 }
                 _ => {
@@ -459,6 +496,7 @@ impl Graph {
                 } else {
                     Err(GraphError::DifferentDimension {
                         id,
+                        arg,
                         axis,
                         expected: dim,
                         given: ground_eval,
@@ -476,8 +514,8 @@ impl Graph {
         &self.nodes.last_key_value().unwrap().1.name
     }
 
-    fn get_last_shape(&self) -> &Shape {
-        &self.nodes.last_key_value().unwrap().1.shape
+    fn get_last_shapes(&self) -> &Shapes {
+        &self.nodes.last_key_value().unwrap().1.shapes
     }
 }
 

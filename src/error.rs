@@ -73,16 +73,24 @@ pub enum GraphError {
     },
     CannotEstimateShape {
         id: GraphId,
+        arg: u64,
         axis: usize,
     },
     DifferentDimension {
         id: GraphId,
+        arg: u64,
         axis: usize,
         expected: Dim,
         given: Dim,
     },
+    DifferentArgs {
+        id: GraphId,
+        last_args: Vec<u64>,
+        args: Vec<u64>,
+    },
     DifferentRank {
         id: GraphId,
+        arg: u64,
         last_rank: usize,
         rank: usize,
     },
@@ -93,6 +101,7 @@ pub enum GraphError {
     },
     DivideByZero {
         id: GraphId,
+        arg: u64,
     },
 }
 
