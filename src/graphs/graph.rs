@@ -287,7 +287,7 @@ impl Graph {
             Err(error) => return Err(CompileError::GraphError { error, model }),
         }
 
-        self.nodes.last_entry().unwrap().get_mut().shapes = shapes_to;
+        self.set_last_shapes(shapes_to);
         self.shape_state = ShapeState::Fixed(if is_new_var_created {
             FitState::Weak
         } else {
@@ -314,9 +314,8 @@ impl Graph {
 
 impl Graph {
     fn apply_shapes_as_input(&self, target: &mut Self, id: GraphId) -> Result<Shapes, GraphError> {
-        let node = &self.nodes.last_key_value().unwrap().1;
-        let shapes = &node.shapes;
-        let target_shapes = target.nodes.first_key_value().unwrap().1.shapes.clone();
+        let shapes = self.get_last_shapes();
+        let target_shapes = target.get_first_shapes().clone();
 
         if target_shapes.validate_args_rank(shapes, &id)? {
             let shapes = shapes
@@ -339,7 +338,7 @@ impl Graph {
                 })
                 .collect::<Result<_, _>>()?;
 
-            let shapes = match &target.nodes.last_key_value().unwrap().1.shapes {
+            let shapes = match &target.get_last_shapes() {
                 Shapes::Dynamic => shapes,
                 Shapes::Fixed(shapes) => shapes
                     .iter()
@@ -514,8 +513,16 @@ impl Graph {
         &self.nodes.last_key_value().unwrap().1.name
     }
 
+    fn get_first_shapes(&self) -> &Shapes {
+        &self.nodes.first_key_value().unwrap().1.shapes
+    }
+
     fn get_last_shapes(&self) -> &Shapes {
         &self.nodes.last_key_value().unwrap().1.shapes
+    }
+
+    fn set_last_shapes(&mut self, shapes: Shapes) {
+        self.nodes.last_entry().unwrap().get_mut().shapes = shapes;
     }
 }
 
