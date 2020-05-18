@@ -1,4 +1,5 @@
 use super::graph::Graph;
+use super::id::GraphIdArg;
 use super::shape::Shapes;
 
 #[derive(Clone, Debug)]
@@ -6,6 +7,7 @@ pub struct Node {
     pub name: String,
     pub graph: Option<Graph>,
     pub shapes: Shapes,
+    pub inputs: Vec<GraphIdArg>,
 }
 
 impl Node {
@@ -22,6 +24,7 @@ impl Default for Node {
             name: Self::INTRINSIC_GENERIC.to_string(),
             graph: None,
             shapes: Shapes::Dynamic,
+            inputs: Vec::new(),
         }
     }
 }

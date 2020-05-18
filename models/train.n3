@@ -9,6 +9,6 @@ use Image Classification
   [Image Classification]
     * [Optimizer] = Adam
 
-  #0 MNIST = Icc, H, W
-  #1 LeNet = 10
-  #2 Image Classification
+  #0 MNIST = [0: Icc, H, W], [1: Oc]
+  #1 LeNet (#0:0) = Oc
+  #2 Image Classification (#1, #1)

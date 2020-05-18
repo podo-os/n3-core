@@ -59,6 +59,11 @@ pub enum GraphError {
         last: GraphId,
         id: GraphId,
     },
+    UnvalidNodeArg {
+        id: GraphId,
+        arg: u64,
+        given: u64,
+    },
     ShapeNotDefined {
         id: GraphId,
     },
@@ -70,6 +75,10 @@ pub enum GraphError {
     },
     NoVariableValue {
         name: String,
+    },
+    NoSuchNode {
+        query_id: GraphId,
+        node: u64,
     },
     CannotEstimateShape {
         id: GraphId,

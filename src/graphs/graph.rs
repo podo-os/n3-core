@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use super::id::GraphId;
+use super::id::{GraphId, GraphIdArg};
 use super::node::Node;
 use super::shape::{Dim, DimKey, FitState, Shape, ShapeState, Shapes};
 use super::variable::{Value, ValueType, Variable};
@@ -134,7 +134,7 @@ impl Graph {
             }
         }
 
-        let node = match &*name {
+        let mut node = match &*name {
             // intrinsics
             Node::INTRINSIC_DYNAMIC => match get_flag(&args) {
                 Ok(true) => {
@@ -170,14 +170,21 @@ impl Graph {
                     name,
                     graph: None,
                     shapes: Shapes::Dynamic,
+                    ..Default::default()
                 }
             }
             Node::INTRINSIC_IDENTITY => {
                 if last_id.is_some() {
+                    // assume that the input has full fixed shapes
+                    if self.shape_state == ShapeState::Fixed(FitState::Weak) {
+                        self.shape_state = ShapeState::Fixed(FitState::Full);
+                    }
+
                     Node {
                         name,
                         graph: None,
-                        shapes: self.get_last_shapes().clone(),
+                        shapes: self.get_last_shapes(None).unwrap(),
+                        ..Default::default()
                     }
                 } else {
                     return Err(CompileError::GraphError {
@@ -195,24 +202,48 @@ impl Graph {
                         name,
                         graph: None,
                         shapes: Shapes::Dynamic,
+                        ..Default::default()
                     }
                 } else if let Some(mut graph) = self.graphs.get(&name).cloned() {
                     let model_name = name;
+                    let mut inputs = vec![];
                     for arg in args {
-                        if let ast::GraphPassArg::NodeArg(nodes) = arg {
-                            unimplemented!();
-                        } else if let ast::GraphPassArg::Keyword { name, value } = arg {
-                            let ty = ValueType::new(Some(&value), false);
-                            if let Err(error) = graph.update_variable(None, Some(name), value, ty) {
-                                return Err(CompileError::GraphError {
-                                    error,
-                                    model: model_name,
-                                });
+                        match arg {
+                            ast::GraphPassArg::NodeArg(args) => {
+                                if id.repeat == 0 {
+                                    for arg in args {
+                                        let id_arg =
+                                            match self.get_last_specific_node_id(arg.node, &id) {
+                                                Ok(arg_id) => GraphIdArg {
+                                                    id: *arg_id,
+                                                    arg: Some(arg.arg),
+                                                },
+                                                Err(error) => {
+                                                    return Err(CompileError::GraphError {
+                                                        error,
+                                                        model: model_name,
+                                                    })
+                                                }
+                                            };
+                                        inputs.push(id_arg);
+                                    }
+                                }
+                            }
+                            ast::GraphPassArg::Keyword { name, value } => {
+                                let ty = ValueType::new(Some(&value), false);
+                                if let Err(error) =
+                                    graph.update_variable(None, Some(name), value, ty)
+                                {
+                                    return Err(CompileError::GraphError {
+                                        error,
+                                        model: model_name,
+                                    });
+                                }
                             }
                         }
                     }
 
-                    let shapes = match self.apply_shapes_as_input(&mut graph, id) {
+                    let shapes = match self.apply_shapes_as_input(&mut graph, &inputs, id) {
                         Ok(shapes) => shapes,
                         Err(error) => {
                             return Err(CompileError::GraphError {
@@ -227,6 +258,7 @@ impl Graph {
                         name: model_name,
                         graph: Some(graph),
                         shapes,
+                        inputs,
                     }
                 } else {
                     return Err(CompileError::NonExternModelError {
@@ -236,6 +268,9 @@ impl Graph {
                 }
             }
         };
+        if node.inputs.is_empty() {
+            node.inputs = vec![GraphIdArg { id, arg: None }].into_iter().collect();
+        }
 
         self.nodes.insert(id, node);
         Ok(())
@@ -246,7 +281,20 @@ impl Graph {
         let shapes = shapes
             .0
             .into_iter()
-            .map(|(arg, shape): (u64, ast::Shape)| {
+            .enumerate()
+            .map(|(arg_ground, (arg, shape))| {
+                let arg_ground = arg_ground as u64;
+                if arg_ground != arg {
+                    return Err(CompileError::GraphError {
+                        error: GraphError::UnvalidNodeArg {
+                            id: *self.get_last_node_id(),
+                            arg: arg_ground,
+                            given: arg,
+                        },
+                        model: self.get_last_node_name().to_string(),
+                    });
+                }
+
                 let shape = shape
                     .0
                     .into_iter()
@@ -313,11 +361,16 @@ impl Graph {
 }
 
 impl Graph {
-    fn apply_shapes_as_input(&self, target: &mut Self, id: GraphId) -> Result<Shapes, GraphError> {
-        let shapes = self.get_last_shapes();
+    fn apply_shapes_as_input(
+        &self,
+        target: &mut Self,
+        inputs: &[GraphIdArg],
+        id: GraphId,
+    ) -> Result<Shapes, GraphError> {
+        let shapes = self.get_last_shapes(Some(inputs))?;
         let target_shapes = target.get_first_shapes().clone();
 
-        if target_shapes.validate_args_rank(shapes, &id)? {
+        if target_shapes.validate_args_rank(&shapes, &id)? {
             let shapes = shapes
                 .unwrap_shapes()
                 .iter()
@@ -338,7 +391,7 @@ impl Graph {
                 })
                 .collect::<Result<_, _>>()?;
 
-            let shapes = match &target.get_last_shapes() {
+            let shapes = match &target.get_last_shapes(None)? {
                 Shapes::Dynamic => shapes,
                 Shapes::Fixed(shapes) => shapes
                     .iter()
@@ -355,7 +408,7 @@ impl Graph {
 
             Ok(Shapes::Fixed(shapes))
         } else if let Shapes::Dynamic = target_shapes {
-            Ok(shapes.clone())
+            Ok(shapes)
         } else {
             unimplemented!()
         }
@@ -509,6 +562,20 @@ impl Graph {
         self.nodes.last_key_value().unwrap().0
     }
 
+    fn get_last_specific_node_id(
+        &self,
+        node: u64,
+        query_id: &GraphId,
+    ) -> Result<&GraphId, GraphError> {
+        match self.nodes.keys().rev().find(|n| n.node == node) {
+            Some(id) => Ok(id),
+            None => Err(GraphError::NoSuchNode {
+                query_id: *query_id,
+                node,
+            }),
+        }
+    }
+
     fn get_last_node_name(&self) -> &str {
         &self.nodes.last_key_value().unwrap().1.name
     }
@@ -517,8 +584,35 @@ impl Graph {
         &self.nodes.first_key_value().unwrap().1.shapes
     }
 
-    fn get_last_shapes(&self) -> &Shapes {
-        &self.nodes.last_key_value().unwrap().1.shapes
+    fn get_last_shapes(&self, inputs: Option<&[GraphIdArg]>) -> Result<Shapes, GraphError> {
+        let (last_id, last_node) = &self.nodes.last_key_value().unwrap();
+        let inputs = inputs.or_else(|| Some(&last_node.inputs)).unwrap();
+        match inputs.len() {
+            0 => self.get_last_shapes(None),
+            1 => {
+                let id_arg = inputs.last().unwrap();
+                match &id_arg.arg {
+                    Some(arg) => {
+                        let shapes = &self.nodes[&id_arg.id].shapes;
+                        Ok(shapes.index_args(&[*arg]))
+                    }
+                    None => {
+                        if id_arg.id == **last_id {
+                            Ok(last_node.shapes.clone())
+                        } else {
+                            Ok(self.nodes[&id_arg.id].shapes.clone())
+                        }
+                    }
+                }
+            }
+            _ => Ok(inputs
+                .iter()
+                .map(|id_arg| {
+                    let shapes = &self.nodes[&id_arg.id].shapes;
+                    shapes.index_args(&[id_arg.arg.unwrap()])
+                })
+                .fold(Shapes::Fixed(Default::default()), |a, b| a.append(b))),
+        }
     }
 
     fn set_last_shapes(&mut self, shapes: Shapes) {

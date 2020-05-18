@@ -1,4 +1,10 @@
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct GraphIdArg {
+    pub id: GraphId,
+    pub arg: Option<u64>,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct GraphId {
     pub node: u64,
     pub pass: u64,

@@ -92,6 +92,32 @@ impl Shapes {
             _ => unreachable!(),
         }
     }
+
+    pub fn index_args(&self, args: &[u64]) -> Self {
+        match self {
+            Self::Dynamic => Self::Dynamic,
+            Self::Fixed(shapes) => Self::Fixed(
+                shapes
+                    .iter()
+                    .filter(|(a, _)| args.contains(a))
+                    .map(|(a, s)| (*a, s.clone()))
+                    .collect(),
+            ),
+        }
+    }
+
+    pub fn append(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Fixed(mut shapes), Self::Fixed(others)) => {
+                let bias = shapes.len();
+                for (arg, (_, other)) in others.into_iter().enumerate() {
+                    shapes.insert((arg + bias) as u64, other);
+                }
+                Self::Fixed(shapes)
+            }
+            _ => Self::Dynamic,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
