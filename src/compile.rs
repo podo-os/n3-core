@@ -12,10 +12,10 @@ impl<'a> Compile<'a> for ast::File {
 
         for model in self.uses {
             let (name, use_g) = model.compile(root)?;
-            graph.add_graph(name, use_g)?;
+            graph.add_graph(name, use_g);
         }
 
-        self.model.compile(&mut graph)?;
+        let (_, graph) = self.model.compile(&mut graph)?;
         Ok(graph)
     }
 }
@@ -32,10 +32,10 @@ impl<'a> Compile<'a> for ast::Use {
 
 impl<'a> Compile<'a> for ast::Model {
     type Args = &'a mut Graph;
-    type Output = ();
+    type Output = (String, Graph);
 
-    fn compile(self, mut graph: Self::Args) -> Result<Self::Output, CompileError> {
-        if self.is_extern {
+    fn compile(self, parent: Self::Args) -> Result<Self::Output, CompileError> {
+        let (mut child, is_override) = if self.is_extern {
             if let Some(model) = self.inner.children.into_iter().next() {
                 return Err(CompileError::ExternModelError {
                     error: ExternModelError::UnexpectedChild { model: model.name },
@@ -49,82 +49,101 @@ impl<'a> Compile<'a> for ast::Model {
                     model: self.name,
                 });
             }
+
+            let prefab = Graph::default();
+
+            (prefab, false)
         } else {
-            for model in self.inner.children {
-                match graph.update_graph(&model.name) {
-                    Some(prefab) => {
-                        if !model.inner.children.is_empty() {
-                            return Err(CompileError::NonExternModelError {
-                                error: NonExternModelError::OverrideChild,
-                                model: model.name,
-                            });
-                        }
-
-                        if !model.inner.graph.is_empty() {
-                            return Err(CompileError::NonExternModelError {
-                                error: NonExternModelError::OverrideGraph,
-                                model: model.name,
-                            });
-                        }
-
-                        for variable in model.inner.variables {
-                            let (name, variable) = variable.compile(())?;
-                            let description = variable.description;
-                            let ty = variable.ty;
-                            if let Some(variable) = variable.value {
-                                if let Err(error) = prefab.update_variable(
-                                    Some(description),
-                                    Some(name),
-                                    variable,
-                                    ty,
-                                ) {
-                                    return Err(CompileError::GraphError {
-                                        error,
-                                        model: model.name,
-                                    });
-                                }
-                            } else {
-                                return Err(CompileError::GraphError {
-                                    error: GraphError::NoVariableValue { name },
-                                    model: model.name,
-                                });
-                            }
-                        }
+            match parent.find_graph(&self.name) {
+                Some(prefab) => {
+                    if !self.inner.children.is_empty() {
+                        return Err(CompileError::NonExternModelError {
+                            error: NonExternModelError::OverrideChild,
+                            model: self.name,
+                        });
                     }
-                    None => {
-                        let mut prefab = graph.new_child(&model.name)?;
-                        model.compile(&mut prefab)?;
+
+                    if !self.inner.graph.is_empty() {
+                        return Err(CompileError::NonExternModelError {
+                            error: NonExternModelError::OverrideGraph,
+                            model: self.name,
+                        });
                     }
+
+                    (prefab, true)
+                }
+                None => {
+                    if self.inner.graph.is_empty() {
+                        return Err(CompileError::NonExternModelError {
+                            error: NonExternModelError::NoGraph,
+                            model: self.name,
+                        });
+                    }
+
+                    let mut prefab = parent.new_child();
+
+                    let children = self
+                        .inner
+                        .children
+                        .into_iter()
+                        .map(|child| {
+                            let (name, child) = child.compile(&mut prefab)?;
+                            Ok((name, child))
+                        })
+                        .collect::<Result<Vec<_>, CompileError>>()?;
+
+                    // once the children have been compiled all,
+                    // add them respectively
+                    for (name, child) in children {
+                        prefab.add_graph(name, child);
+                    }
+
+                    (prefab, false)
                 }
             }
+        };
 
-            if self.inner.graph.is_empty() {
-                return Err(CompileError::NonExternModelError {
-                    error: NonExternModelError::NoGraph,
-                    model: self.name,
-                });
+        if is_override {
+            for variable in self.inner.variables {
+                let (name, variable) = variable.compile(())?;
+                let description = variable.description;
+                let ty = variable.ty;
+                if let Some(variable) = variable.value {
+                    if let Err(error) =
+                        child.update_variable(Some(description), Some(name), variable, ty)
+                    {
+                        return Err(CompileError::GraphError {
+                            error,
+                            model: self.name,
+                        });
+                    }
+                } else {
+                    return Err(CompileError::GraphError {
+                        error: GraphError::NoVariableValue { name },
+                        model: self.name,
+                    });
+                }
             }
-        }
-
-        for variable in self.inner.variables {
-            let (name, variable) = variable.compile(())?;
-            if let Err(error) = graph.add_variable(Some(name), variable) {
-                return Err(CompileError::GraphError {
-                    error,
-                    model: self.name,
-                });
+        } else {
+            for variable in self.inner.variables {
+                let (name, variable) = variable.compile(())?;
+                if let Err(error) = child.add_variable(Some(name), variable) {
+                    return Err(CompileError::GraphError {
+                        error,
+                        model: self.name,
+                    });
+                }
             }
         }
 
         for node in self.inner.graph {
-            node.compile(&mut graph)?;
+            node.compile(&mut child)?;
         }
 
-        if !self.is_extern {
-            graph.finalize()
-        } else {
-            Ok(())
+        if !self.is_extern && !is_override {
+            child.finalize()?;
         }
+        Ok((self.name, child))
     }
 }
 
@@ -154,6 +173,13 @@ impl<'a> Compile<'a> for ast::Graph {
     type Output = ();
 
     fn compile(self, graph: Self::Args) -> Result<Self::Output, CompileError> {
+        let mut inline = if let Some(inline) = self.inline {
+            let (_, inline) = inline.compile(graph)?;
+            Some(inline)
+        } else {
+            None
+        };
+
         for (pass_idx, pass) in self.passes.into_iter().enumerate() {
             for repeat in 0..pass.repeat {
                 let id = GraphId {
@@ -162,7 +188,7 @@ impl<'a> Compile<'a> for ast::Graph {
                     repeat,
                 };
 
-                graph.attach(id, pass.name.clone(), pass.args.clone())?;
+                graph.attach(id, pass.name.clone(), inline.take(), pass.args.clone())?;
             }
         }
 

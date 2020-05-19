@@ -4,6 +4,12 @@ pub struct GraphIdArg {
     pub arg: Option<u64>,
 }
 
+impl GraphIdArg {
+    pub fn with_id(id: GraphId) -> Self {
+        Self { id, arg: None }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct GraphId {
     pub node: u64,

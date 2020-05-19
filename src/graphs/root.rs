@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::graph::Graph;
 use crate::compile::Compile;
@@ -18,13 +18,24 @@ pub struct GraphRoot {
     prefabs: HashMap<String, ast::File>,
 }
 
+impl Default for GraphRoot {
+    fn default() -> Self {
+        Self {
+            graphs: HashMap::default(),
+            compiling: HashSet::default(),
+
+            prefabs: Self::load_graph_prefabs_no_local().unwrap(),
+        }
+    }
+}
+
 impl GraphRoot {
-    pub fn new(pwd: PathBuf) -> Result<Self, CompileError> {
+    pub fn with_path<P: AsRef<Path>>(pwd: P) -> Result<Self, CompileError> {
         Ok(Self {
             graphs: HashMap::default(),
             compiling: HashSet::default(),
 
-            prefabs: Self::load_graph_prefabs(pwd)?,
+            prefabs: Self::load_graph_prefabs(Some(pwd))?,
         })
     }
 
@@ -40,6 +51,11 @@ impl GraphRoot {
         } else {
             self.load_graph(name, origin)
         }
+    }
+
+    pub fn compile_from_source(&mut self, source: &str) -> Result<Graph, CompileError> {
+        let (_, ast) = Self::load_graph_prefab(PathBuf::new(), source)?;
+        ast.compile(self)
     }
 }
 
@@ -74,13 +90,49 @@ impl GraphRoot {
             model_not_found(name, ast::UseOrigin::Local)
         }
     }
+
+    fn load_graph_prefabs<P: AsRef<Path>>(
+        pwd: Option<P>,
+    ) -> Result<HashMap<String, ast::File>, CompileError> {
+        match pwd {
+            Some(pwd) => Self::load_graph_prefabs_local(pwd),
+            None => Self::load_graph_prefabs_no_local(),
+        }
+    }
+
+    fn load_graph_prefabs_no_local() -> Result<HashMap<String, ast::File>, CompileError> {
+        Self::load_graph_prefabs_embed()
+            .into_iter()
+            .map(|(path, source)| Self::load_graph_prefab(path, &source))
+            .collect()
+    }
+
+    fn load_graph_prefabs_embed() -> Vec<(PathBuf, String)> {
+        STD_DIR
+            .find("**/*.n3")
+            .unwrap()
+            .filter_map(|r| STD_DIR.get_file(r.path()))
+            .filter_map(|p| p.contents_utf8().map(|s| (p.path().into(), s.to_string())))
+            .collect()
+    }
+
+    fn load_graph_prefab(path: PathBuf, source: &str) -> Result<(String, ast::File), CompileError> {
+        let ast = parser::parse_file(source)
+            .or_else(|e| Err(CompileError::ParseError { error: e, path }))?;
+
+        let name = ast.model.name.clone();
+
+        Ok((name, ast))
+    }
 }
 
 static STD_DIR: Dir<'static> = include_dir!("std");
 
 #[cfg(not(target_arch = "wasm32"))]
 impl GraphRoot {
-    fn load_graph_prefabs(pwd: PathBuf) -> Result<HashMap<String, ast::File>, CompileError> {
+    fn load_graph_prefabs_local<P: AsRef<Path>>(
+        pwd: P,
+    ) -> Result<HashMap<String, ast::File>, CompileError> {
         walkdir::WalkDir::new(pwd)
             .follow_links(false)
             .into_iter()
@@ -92,39 +144,21 @@ impl GraphRoot {
                 Some((p, source))
             })
             .chain(Self::load_graph_prefabs_embed())
-            .map(|(p, s)| Self::load_graph_prefab(p, s))
-            .collect()
-    }
-
-    fn load_graph_prefab(
-        path: PathBuf,
-        source: String,
-    ) -> Result<(String, ast::File), CompileError> {
-        let ast = parser::parse_file(&source)
-            .or_else(|e| Err(CompileError::ParseError { error: e, path }))?;
-
-        let name = ast.model.name.clone();
-
-        Ok((name, ast))
-    }
-
-    fn load_graph_prefabs_embed() -> Vec<(PathBuf, String)> {
-        STD_DIR
-            .find("**/*.n3")
-            .unwrap()
-            .filter_map(|r| STD_DIR.get_file(r.path()))
-            .filter_map(|p| p.contents_utf8().map(|s| (p.path().into(), s.to_string())))
+            .map(|(p, s)| Self::load_graph_prefab(p, &s))
             .collect()
     }
 }
 
 #[cfg(target_arch = "wasm32")]
 impl GraphRoot {
-    fn load_graph_prefabs(_pwd: PathBuf) -> Result<HashMap<String, ast::File>, CompileError> {
-        Self::load_graph_prefabs_embed()
-            .into_iter()
-            .map(Self::load_graph_prefab)
-            .collect()
+    fn load_graph_prefabs_local<P: AsRef<Path>>(
+        pwd: P,
+    ) -> Result<HashMap<String, ast::File>, CompileError> {
+        println!(
+            "Initializing GraphRoot with path on wasm is not supported yet: {}",
+            pwd.as_ref().display()
+        );
+        Self::load_graph_prefabs_no_local()
     }
 }
 

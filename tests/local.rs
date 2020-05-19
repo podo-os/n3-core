@@ -2,13 +2,18 @@ use n3_parser::ast;
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
-fn test_compile_local() {
+fn local_model() {
     let mut path = std::env::current_dir().unwrap();
     path.push("models");
 
-    let mut root = n3_core::GraphRoot::new(path).unwrap();
+    let mut root = n3_core::GraphRoot::with_path(path).unwrap();
 
-    dbg!(root
+    let graph = root
         .find_graph("LeNet Trainer", ast::UseOrigin::Local)
-        .unwrap());
+        .unwrap();
+
+    let shapes = graph.get_shapes();
+    assert_eq!(shapes.len(), 1);
+    assert_eq!(shapes[0].len(), 1);
+    assert_eq!(shapes[0][0], 2u64);
 }

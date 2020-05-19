@@ -7,7 +7,7 @@ use super::variable::{Value, ValueType, Variable};
 use crate::error::{CompileError, GraphError, NonExternModelError};
 
 use n3_parser::ast;
-use symengine::{Expression, ExpressionMap, ExpressionMapKey};
+use symengine::{Expression, ExpressionMap};
 
 #[derive(Clone, Debug, Default)]
 pub struct Graph {
@@ -22,17 +22,36 @@ pub struct Graph {
 }
 
 impl Graph {
-    pub(crate) fn new_child(&mut self, name: &str) -> Result<&mut Self, CompileError> {
-        let child = Self {
+    pub(crate) fn new_child(&mut self) -> Self {
+        Self {
             variables: HashMap::new(),
             variable_aliases: HashMap::new(),
             keys: ExpressionMap::new(),
             graphs: self.graphs.clone(),
             nodes: BTreeMap::new(),
             shape_state: ShapeState::default(),
-        };
-        self.add_graph(name.to_string(), child)?;
-        Ok(self.graphs.get_mut(name).unwrap())
+        }
+    }
+}
+
+impl Graph {
+    pub fn get_shapes(&self) -> Vec<Vec<Expression>> {
+        match &self.nodes.last_key_value().unwrap().1.shapes {
+            Shapes::Dynamic => unreachable!(),
+            Shapes::Fixed(shapes) => shapes
+                .values()
+                .map(|s| match s {
+                    Shape::Dynamic => unreachable!(),
+                    Shape::Fixed(dims) => dims
+                        .iter()
+                        .map(|d| match d {
+                            Dim::Expr(expr) => expr.clone(),
+                            Dim::Key(key) => key.as_expr(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
     }
 }
 
@@ -92,26 +111,25 @@ impl Graph {
         }
     }
 
-    pub(crate) fn add_graph(&mut self, name: String, graph: Self) -> Result<(), CompileError> {
-        self.graphs.entry(name).or_insert_with(|| graph);
-        Ok(())
+    pub(crate) fn add_graph(&mut self, name: String, graph: Self) {
+        self.graphs.insert(name, graph);
     }
 
-    pub(crate) fn update_graph(&mut self, name: &str) -> Option<&mut Self> {
-        self.graphs.get_mut(name)
+    pub(crate) fn find_graph(&mut self, name: &str) -> Option<Self> {
+        self.graphs.get(name).cloned()
     }
 
     pub(crate) fn attach(
         &mut self,
         id: GraphId,
         name: String,
+        graph: Option<Self>,
         args: Vec<ast::GraphPassArg>,
     ) -> Result<(), CompileError> {
         let last_id = if self.nodes.is_empty() {
             if id.is_first() {
                 let id = GraphId::new_input();
-                let node = Node::default();
-                self.nodes.insert(id, node);
+                self.attach(id, Node::INTRINSIC_INPUT.to_string(), None, vec![])?;
                 Some(id)
             } else if id.is_input() {
                 None
@@ -183,7 +201,7 @@ impl Graph {
                     Node {
                         name,
                         graph: None,
-                        shapes: self.get_last_shapes(None).unwrap(),
+                        shapes: self.get_last_shapes(None),
                         ..Default::default()
                     }
                 } else {
@@ -204,62 +222,10 @@ impl Graph {
                         shapes: Shapes::Dynamic,
                         ..Default::default()
                     }
-                } else if let Some(mut graph) = self.graphs.get(&name).cloned() {
-                    let model_name = name;
-                    let mut inputs = vec![];
-                    for arg in args {
-                        match arg {
-                            ast::GraphPassArg::NodeArg(args) => {
-                                if id.repeat == 0 {
-                                    for arg in args {
-                                        let id_arg =
-                                            match self.get_last_specific_node_id(arg.node, &id) {
-                                                Ok(arg_id) => GraphIdArg {
-                                                    id: *arg_id,
-                                                    arg: Some(arg.arg),
-                                                },
-                                                Err(error) => {
-                                                    return Err(CompileError::GraphError {
-                                                        error,
-                                                        model: model_name,
-                                                    })
-                                                }
-                                            };
-                                        inputs.push(id_arg);
-                                    }
-                                }
-                            }
-                            ast::GraphPassArg::Keyword { name, value } => {
-                                let ty = ValueType::new(Some(&value), false);
-                                if let Err(error) =
-                                    graph.update_variable(None, Some(name), value, ty)
-                                {
-                                    return Err(CompileError::GraphError {
-                                        error,
-                                        model: model_name,
-                                    });
-                                }
-                            }
-                        }
-                    }
-
-                    let shapes = match self.apply_shapes_as_input(&mut graph, &inputs, id) {
-                        Ok(shapes) => shapes,
-                        Err(error) => {
-                            return Err(CompileError::GraphError {
-                                error,
-                                model: model_name,
-                            })
-                        }
-                    };
-                    self.shape_state = graph.shape_state.clone();
-
-                    Node {
-                        name: model_name,
-                        graph: Some(graph),
-                        shapes,
-                        inputs,
-                    }
+                } else if let Some(graph) = graph {
+                    self.attach_model(id, name, graph, args)?
+                } else if let Some(graph) = self.graphs.get(&name).cloned() {
+                    self.attach_model(id, name, graph, args)?
                 } else {
                     return Err(CompileError::NonExternModelError {
                         error: NonExternModelError::ModelNotFound,
@@ -269,7 +235,7 @@ impl Graph {
             }
         };
         if node.inputs.is_empty() {
-            node.inputs = vec![GraphIdArg { id, arg: None }].into_iter().collect();
+            node.inputs = vec![GraphIdArg::with_id(id)].into_iter().collect();
         }
 
         self.nodes.insert(id, node);
@@ -299,8 +265,14 @@ impl Graph {
                     .0
                     .into_iter()
                     .map(|d| self.convert_dim(d, arg, &mut is_new_var_created))
-                    .collect::<Result<_, _>>()?;
-                Ok((arg, Shape::Fixed(shape)))
+                    .collect::<Result<_, _>>();
+                match shape {
+                    Ok(shape) => Ok((arg, Shape::Fixed(shape))),
+                    Err(error) => Err(CompileError::GraphError {
+                        error,
+                        model: self.get_last_node_name().to_string(),
+                    }),
+                }
             })
             .collect::<Result<_, CompileError>>()?;
         let mut shapes = Shapes::Fixed(shapes);
@@ -361,13 +333,73 @@ impl Graph {
 }
 
 impl Graph {
+    fn attach_model(
+        &mut self,
+        id: GraphId,
+        model_name: String,
+        mut graph: Self,
+        args: Vec<ast::GraphPassArg>,
+    ) -> Result<Node, CompileError> {
+        let mut inputs = vec![];
+        for arg in args {
+            match arg {
+                ast::GraphPassArg::NodeArg(args) => {
+                    if id.repeat == 0 {
+                        for arg in args {
+                            let id_arg = match self.get_last_specific_node_id(arg.node, &id) {
+                                Ok(arg_id) => GraphIdArg {
+                                    id: *arg_id,
+                                    arg: Some(arg.arg),
+                                },
+                                Err(error) => {
+                                    return Err(CompileError::GraphError {
+                                        error,
+                                        model: model_name,
+                                    })
+                                }
+                            };
+                            inputs.push(id_arg);
+                        }
+                    }
+                }
+                ast::GraphPassArg::Keyword { name, value } => {
+                    let ty = ValueType::new(Some(&value), false);
+                    if let Err(error) = graph.update_variable(None, Some(name), value, ty) {
+                        return Err(CompileError::GraphError {
+                            error,
+                            model: model_name,
+                        });
+                    }
+                }
+            }
+        }
+
+        let shapes = match self.apply_shapes_as_input(&mut graph, &inputs, id) {
+            Ok(shapes) => shapes,
+            Err(error) => {
+                return Err(CompileError::GraphError {
+                    error,
+                    model: model_name,
+                })
+            }
+        };
+        self.shape_state = graph.shape_state.clone();
+
+        Ok(Node {
+            name: model_name,
+            graph: Some(graph),
+            shapes,
+            inputs,
+        })
+    }
+
     fn apply_shapes_as_input(
-        &self,
+        &mut self,
         target: &mut Self,
         inputs: &[GraphIdArg],
         id: GraphId,
     ) -> Result<Shapes, GraphError> {
-        let shapes = self.get_last_shapes(Some(inputs))?;
+        let shapes = self.get_last_shapes(Some(inputs));
         let target_shapes = target.get_first_shapes().clone();
 
         if target_shapes.validate_args_rank(&shapes, &id)? {
@@ -391,7 +423,7 @@ impl Graph {
                 })
                 .collect::<Result<_, _>>()?;
 
-            let shapes = match &target.get_last_shapes(None)? {
+            let shapes = match &target.get_last_shapes(None) {
                 Shapes::Dynamic => shapes,
                 Shapes::Fixed(shapes) => shapes
                     .iter()
@@ -409,6 +441,9 @@ impl Graph {
             Ok(Shapes::Fixed(shapes))
         } else if let Shapes::Dynamic = target_shapes {
             Ok(shapes)
+        // dynamic inputs
+        } else if inputs.is_empty() && id.is_first() {
+            self.set_last_shapes_from_child(target_shapes, id)
         } else {
             unimplemented!()
         }
@@ -419,7 +454,7 @@ impl Graph {
         dim: ast::Dim,
         arg: u64,
         is_new_var_created: &mut bool,
-    ) -> Result<Dim, CompileError> {
+    ) -> Result<Dim, GraphError> {
         match dim {
             ast::Dim::Fixed(dim) => Ok(Dim::Expr(dim.into())),
             ast::Dim::Semantic(var) => self.find_var(var, is_new_var_created),
@@ -433,12 +468,9 @@ impl Graph {
                     ast::DimOp::Div => {
                         if let Dim::Expr(rhs) = self.eval_dim(rhs.clone()) {
                             if rhs == 0u64 {
-                                return Err(CompileError::GraphError {
-                                    error: GraphError::DivideByZero {
-                                        id: *self.get_last_node_id(),
-                                        arg,
-                                    },
-                                    model: self.get_last_node_name().to_string(),
+                                return Err(GraphError::DivideByZero {
+                                    id: *self.get_last_node_id(),
+                                    arg,
                                 });
                             }
                         }
@@ -449,11 +481,7 @@ impl Graph {
         }
     }
 
-    fn find_var(
-        &mut self,
-        var: String,
-        is_new_var_created: &mut bool,
-    ) -> Result<Dim, CompileError> {
+    fn find_var(&mut self, var: String, is_new_var_created: &mut bool) -> Result<Dim, GraphError> {
         let key = DimKey::Placeholder(var, true);
         if self.keys.contains_key(&key) {
             return Ok(Dim::Key(key));
@@ -467,28 +495,18 @@ impl Graph {
             var = alias.clone();
         }
         if let Some(graph_var) = self.variables.get_mut(&var) {
-            match graph_var.expect_or_default(ValueType::UInt) {
-                Ok(()) => {
-                    let key = DimKey::Variable(var);
-                    Ok(Dim::Key(key))
-                }
-                Err(error) => Err(CompileError::GraphError {
-                    error,
-                    model: self.get_last_node_name().to_string(),
-                }),
-            }
+            graph_var.expect_or_default(ValueType::UInt)?;
+            let key = DimKey::Variable(var);
+            Ok(Dim::Key(key))
         } else if self.shape_state.is_new_var_available() {
             *is_new_var_created = true;
             let key = DimKey::Placeholder(var, self.get_last_node_id().node == 0);
-            let value = Expression::new(key.to_string());
+            let value = key.as_expr();
             self.keys.insert(key.clone(), value);
             Ok(Dim::Key(key))
         } else {
-            Err(CompileError::GraphError {
-                error: GraphError::FullShapeRequired {
-                    id: *self.get_last_node_id(),
-                },
-                model: self.get_last_node_name().to_string(),
+            Err(GraphError::FullShapeRequired {
+                id: *self.get_last_node_id(),
             })
         }
     }
@@ -523,7 +541,7 @@ impl Graph {
                     } else if *ph_is_input && *ground_is_input {
                         let key = DimKey::Placeholder(ph.clone(), *ph_is_input);
                         let ground = DimKey::Placeholder(ground.clone(), *ph_is_input);
-                        let ground = Expression::new(ground.to_string());
+                        let ground = ground.as_expr();
                         self.keys.insert(key, ground.clone());
                         Ok(Dim::Expr(ground))
                     } else {
@@ -584,9 +602,13 @@ impl Graph {
         &self.nodes.first_key_value().unwrap().1.shapes
     }
 
-    fn get_last_shapes(&self, inputs: Option<&[GraphIdArg]>) -> Result<Shapes, GraphError> {
+    fn get_last_shapes(&self, inputs: Option<&[GraphIdArg]>) -> Shapes {
         let (last_id, last_node) = &self.nodes.last_key_value().unwrap();
-        let inputs = inputs.or_else(|| Some(&last_node.inputs)).unwrap();
+        let inputs = inputs
+            .map(|a| a.to_vec())
+            .or_else(|| Some(vec![GraphIdArg::with_id(**last_id)]))
+            .unwrap();
+
         match inputs.len() {
             0 => self.get_last_shapes(None),
             1 => {
@@ -594,29 +616,47 @@ impl Graph {
                 match &id_arg.arg {
                     Some(arg) => {
                         let shapes = &self.nodes[&id_arg.id].shapes;
-                        Ok(shapes.index_args(&[*arg]))
+                        shapes.index_args(&[*arg])
                     }
                     None => {
                         if id_arg.id == **last_id {
-                            Ok(last_node.shapes.clone())
+                            last_node.shapes.clone()
                         } else {
-                            Ok(self.nodes[&id_arg.id].shapes.clone())
+                            self.nodes[&id_arg.id].shapes.clone()
                         }
                     }
                 }
             }
-            _ => Ok(inputs
+            _ => inputs
                 .iter()
                 .map(|id_arg| {
                     let shapes = &self.nodes[&id_arg.id].shapes;
                     shapes.index_args(&[id_arg.arg.unwrap()])
                 })
-                .fold(Shapes::Fixed(Default::default()), |a, b| a.append(b))),
+                .fold(Shapes::Fixed(Default::default()), |a, b| a.append(b)),
         }
     }
 
     fn set_last_shapes(&mut self, shapes: Shapes) {
         self.nodes.last_entry().unwrap().get_mut().shapes = shapes;
+    }
+
+    fn set_last_shapes_from_child(
+        &mut self,
+        mut shapes: Shapes,
+        id: GraphId,
+    ) -> Result<Shapes, GraphError> {
+        match shapes {
+            Shapes::Dynamic => Err(GraphError::FullShapeRequired { id }),
+            Shapes::Fixed(_) => {
+                for ph in shapes.try_archive_placeholders(id)? {
+                    self.find_var(ph, &mut false)?;
+                }
+
+                self.set_last_shapes(shapes.clone());
+                Ok(shapes)
+            }
+        }
     }
 }
 

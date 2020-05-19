@@ -4,6 +4,7 @@ use std::ops;
 use super::id::GraphId;
 use crate::error::GraphError;
 
+use generator::{Generator, Gn};
 use heck::CamelCase;
 use symengine::{Expression, ExpressionMapKey};
 
@@ -116,6 +117,28 @@ impl Shapes {
                 Self::Fixed(shapes)
             }
             _ => Self::Dynamic,
+        }
+    }
+
+    pub fn try_archive_placeholders(
+        &mut self,
+        id: GraphId,
+    ) -> Result<Generator<'_, (), String>, GraphError> {
+        match self {
+            Self::Fixed(shapes) => Ok(Gn::new_scoped(move |mut s| {
+                for shape in shapes.values_mut() {
+                    if let Shape::Fixed(dims) = shape {
+                        for dim in dims {
+                            if let Dim::Key(DimKey::Placeholder(ph, _)) = dim {
+                                *ph = format!("_node_{:?}_{}", id.node, ph);
+                                s.yield_(ph.clone());
+                            }
+                        }
+                    }
+                }
+                done!();
+            })),
+            Self::Dynamic => Err(GraphError::FullShapeRequired { id }),
         }
     }
 }
@@ -238,6 +261,13 @@ impl DimKey {
         match self {
             Self::Variable(var) => var,
             Self::Placeholder(ph, _) => ph,
+        }
+    }
+
+    pub fn as_expr(&self) -> Expression {
+        match self {
+            Self::Variable(var) => Expression::new(var.as_str()),
+            Self::Placeholder(ph, _) => Expression::new(ph.as_str()),
         }
     }
 }

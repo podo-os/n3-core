@@ -11,4 +11,4 @@ use Image Classification
 
   #0 MNIST = [0: Icc, H, W], [1: Oc]
   #1 LeNet (#0:0) = Oc
-  #2 Image Classification (#1, #1)
+  #2 Image Classification (#1, #0:1)
