@@ -11,6 +11,8 @@ use include_dir::{include_dir, Dir};
 use n3_parser::ast;
 use n3_parser::parser;
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug)]
 pub struct GraphRoot {
     graphs: HashMap<String, Graph>,
     compiling: HashSet<String>,
@@ -53,9 +55,15 @@ impl GraphRoot {
         }
     }
 
-    pub fn compile_from_source(&mut self, source: &str) -> Result<Graph, CompileError> {
-        let (_, ast) = Self::load_graph_prefab(PathBuf::new(), source)?;
-        ast.compile(self)
+    pub fn compile_from_source(
+        &mut self,
+        source: &str,
+        origin: ast::UseOrigin,
+    ) -> Result<Graph, CompileError> {
+        let (name, ast) = Self::load_graph_prefab(PathBuf::new(), source)?;
+        let graph = ast.compile(self)?;
+        self.graphs.insert(name, graph.clone());
+        Ok(graph)
     }
 }
 

@@ -2,6 +2,7 @@ use crate::error::GraphError;
 
 pub use n3_parser::ast::Value;
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
 pub struct Variable {
     pub description: String,
@@ -47,6 +48,7 @@ impl Variable {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ValueType {
     Required,

@@ -2,6 +2,7 @@ use super::graph::Graph;
 use super::id::GraphIdArg;
 use super::shape::Shapes;
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
 pub struct Node {
     pub name: String,

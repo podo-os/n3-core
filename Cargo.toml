@@ -1,6 +1,6 @@
 [package]
 name = "n3-core"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["h <besqer996@gnu.ac.kr>"]
 edition = "2018"
 
@@ -22,12 +22,20 @@ include = [
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["serde", "n3-parser/serde"]
+
 [dependencies]
 generator = "0.6"
 heck = "0.3"
 n3-parser = "0.3"
 include_dir = "0.6"
-symengine = "0.2"
+serde = { version = "1.0", optional = true, features = ["derive"] }
+symengine = { path = "../../samples/symengine-rs" }
+# symengine = "0.2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 walkdir = "2.3"
+
+[dev-dependencies]
+bincode = "1.2"

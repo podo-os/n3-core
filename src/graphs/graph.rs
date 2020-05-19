@@ -9,6 +9,7 @@ use crate::error::{CompileError, GraphError, NonExternModelError};
 use n3_parser::ast;
 use symengine::{Expression, ExpressionMap};
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Default)]
 pub struct Graph {
     variables: HashMap<String, Variable>,

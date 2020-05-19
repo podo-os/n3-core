@@ -8,6 +8,7 @@ use generator::{Generator, Gn};
 use heck::CamelCase;
 use symengine::{Expression, ExpressionMapKey};
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ShapeState {
     Fixed(FitState),
@@ -15,6 +16,7 @@ pub enum ShapeState {
     Transform,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FitState {
     /// Any dim can get new variables.
@@ -41,6 +43,7 @@ impl ShapeState {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
 pub enum Shapes {
     Dynamic,
@@ -143,6 +146,7 @@ impl Shapes {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
 pub enum Shape {
     Dynamic,
@@ -194,6 +198,7 @@ impl Shape {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Dim {
     Key(DimKey),
@@ -241,6 +246,7 @@ impl ops::Div for Dim {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DimKey {
     Variable(String),

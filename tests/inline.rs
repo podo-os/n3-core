@@ -14,7 +14,9 @@ use ReLU
 
     let mut root = n3_core::GraphRoot::default();
 
-    let graph = root.compile_from_source(SOUECE).unwrap();
+    let graph = root
+        .compile_from_source(SOUECE, n3_core::UseOrigin::Local)
+        .unwrap();
 
     let shapes = graph.get_shapes();
     assert_eq!(shapes.len(), 1);
