@@ -1,5 +1,3 @@
-use n3_parser::ast;
-
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn local_model() {
@@ -9,7 +7,7 @@ fn local_model() {
     let mut root = n3_core::GraphRoot::with_path(path).unwrap();
 
     let graph = root
-        .find_graph("LeNet Trainer", ast::UseOrigin::Local)
+        .find_graph("LeNet Trainer", n3_core::UseOrigin::Local)
         .unwrap();
 
     let shapes = graph.get_shapes();

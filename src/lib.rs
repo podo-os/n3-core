@@ -8,3 +8,5 @@ mod error;
 mod graphs;
 
 pub use self::graphs::GraphRoot;
+
+pub use n3_parser::ast::UseOrigin;
