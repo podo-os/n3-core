@@ -139,9 +139,13 @@ impl GraphRoot {
             .filter_map(|e| e.ok())
             .filter(|r| !r.metadata().map(|m| m.is_dir()).unwrap_or(true))
             .map(|r| r.path().into())
-            .filter_map(|p| {
+            .filter_map(|p: PathBuf| {
                 let source = fs::read_to_string(&p).ok()?;
-                Some((p, source))
+                if p.to_str().unwrap().ends_with(".n3") {
+                    Some((p, source))
+                } else {
+                    None
+                }
             })
             .chain(Self::load_graph_prefabs_embed())
             .map(|(p, s)| Self::load_graph_prefab(p, &s))
