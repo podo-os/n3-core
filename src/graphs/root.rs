@@ -45,9 +45,9 @@ impl GraphRoot {
         &mut self,
         name: &str,
         origin: ast::UseOrigin,
-    ) -> Result<Graph, CompileError> {
-        if let Some(graph) = self.graphs.get(name) {
-            Ok(graph.clone())
+    ) -> Result<&Graph, CompileError> {
+        if self.graphs.contains_key(name) {
+            Ok(&self.graphs[name])
         } else if self.compiling.contains(name) {
             recursive_model(name, origin)
         } else {
@@ -55,16 +55,16 @@ impl GraphRoot {
         }
     }
 
-    pub fn compile_from_source(&mut self, source: &str) -> Result<Graph, CompileError> {
+    pub fn compile_from_source(&mut self, source: &str) -> Result<&Graph, CompileError> {
         let (name, ast) = Self::load_graph_prefab(PathBuf::new(), source)?;
         let graph = ast.compile(self)?;
-        self.graphs.insert(name, graph.clone());
-        Ok(graph)
+        self.graphs.insert(name.clone(), graph);
+        Ok(&self.graphs[&name])
     }
 }
 
 impl GraphRoot {
-    fn load_graph(&mut self, name: &str, origin: ast::UseOrigin) -> Result<Graph, CompileError> {
+    fn load_graph(&mut self, name: &str, origin: ast::UseOrigin) -> Result<&Graph, CompileError> {
         if self.compiling.insert(name.to_string()) {
             let model = match origin {
                 ast::UseOrigin::Site(site) => self.load_graph_site(name, site),
@@ -72,8 +72,8 @@ impl GraphRoot {
                 ast::UseOrigin::Local => self.load_graph_local(name),
             }?;
             self.compiling.remove(name);
-            self.graphs.insert(name.to_string(), model.clone());
-            Ok(model)
+            self.graphs.insert(name.to_string(), model);
+            Ok(&self.graphs[name])
         } else {
             recursive_model(name, origin)
         }

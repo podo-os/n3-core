@@ -12,7 +12,7 @@ impl<'a> Compile<'a> for ast::File {
 
         for model in self.uses {
             let (name, use_g) = model.compile(root)?;
-            graph.add_graph(name, use_g);
+            graph.add_graph(name, use_g.clone());
         }
 
         let (_, graph) = self.model.compile(&mut graph)?;
@@ -22,7 +22,7 @@ impl<'a> Compile<'a> for ast::File {
 
 impl<'a> Compile<'a> for ast::Use {
     type Args = &'a mut GraphRoot;
-    type Output = (String, Graph);
+    type Output = (String, &'a Graph);
 
     fn compile(self, root: Self::Args) -> Result<Self::Output, CompileError> {
         let model = root.find_graph(&self.model, self.origin)?;
