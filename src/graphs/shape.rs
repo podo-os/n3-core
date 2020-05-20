@@ -206,10 +206,10 @@ pub enum Dim {
 }
 
 impl Dim {
-    pub fn into_expr(self) -> Expression {
+    pub fn to_expr(&self) -> Expression {
         match self {
-            Self::Key(key) => Expression::new(key.to_string()),
-            Self::Expr(expr) => expr,
+            Self::Key(key) => key.to_expr(),
+            Self::Expr(expr) => expr.clone(),
         }
     }
 }
@@ -218,7 +218,7 @@ impl ops::Add for Dim {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self {
-        Dim::Expr(self.into_expr() + rhs.into_expr())
+        Dim::Expr(self.to_expr() + rhs.to_expr())
     }
 }
 
@@ -226,7 +226,7 @@ impl ops::Sub for Dim {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self {
-        Dim::Expr(self.into_expr() - rhs.into_expr())
+        Dim::Expr(self.to_expr() - rhs.to_expr())
     }
 }
 
@@ -234,7 +234,7 @@ impl ops::Mul for Dim {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self {
-        Dim::Expr(self.into_expr() * rhs.into_expr())
+        Dim::Expr(self.to_expr() * rhs.to_expr())
     }
 }
 
@@ -242,7 +242,7 @@ impl ops::Div for Dim {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self {
-        Dim::Expr(self.into_expr() / rhs.into_expr())
+        Dim::Expr(self.to_expr() / rhs.to_expr())
     }
 }
 
@@ -270,10 +270,7 @@ impl DimKey {
         }
     }
 
-    pub fn as_expr(&self) -> Expression {
-        match self {
-            Self::Variable(var) => Expression::new(var.as_str()),
-            Self::Placeholder(ph, _) => Expression::new(ph.as_str()),
-        }
+    pub fn to_expr(&self) -> Expression {
+        Expression::new(self.to_string())
     }
 }

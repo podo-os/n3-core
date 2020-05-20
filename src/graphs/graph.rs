@@ -45,10 +45,7 @@ impl Graph {
                     Shape::Dynamic => unreachable!(),
                     Shape::Fixed(dims) => dims
                         .iter()
-                        .map(|d| match d {
-                            Dim::Expr(expr) => expr.clone(),
-                            Dim::Key(key) => key.as_expr(),
-                        })
+                        .map(|d| self.eval_dim_with_placeholders(d))
                         .collect(),
                 })
                 .collect(),
@@ -432,7 +429,7 @@ impl Graph {
                         let shape = shape
                             .unwrap_dims()
                             .iter()
-                            .map(|d| target.eval_dim(d.clone()))
+                            .map(|d| target.eval_dim(d))
                             .collect();
                         Ok((*arg, Shape::Fixed(shape)))
                     })
@@ -467,7 +464,7 @@ impl Graph {
                     ast::DimOp::Sub => Ok(lhs - rhs),
                     ast::DimOp::Mul => Ok(lhs * rhs),
                     ast::DimOp::Div => {
-                        if let Dim::Expr(rhs) = self.eval_dim(rhs.clone()) {
+                        if let Dim::Expr(rhs) = self.eval_dim(&rhs) {
                             if rhs == 0u64 {
                                 return Err(GraphError::DivideByZero {
                                     id: *self.get_last_node_id(),
@@ -502,7 +499,7 @@ impl Graph {
         } else if self.shape_state.is_new_var_available() {
             *is_new_var_created = true;
             let key = DimKey::Placeholder(var, self.get_last_node_id().node == 0);
-            let value = key.as_expr();
+            let value = key.to_expr();
             self.keys.insert(key.clone(), value);
             Ok(Dim::Key(key))
         } else {
@@ -512,14 +509,21 @@ impl Graph {
         }
     }
 
-    fn eval_dim(&self, dim: Dim) -> Dim {
+    fn eval_dim(&self, dim: &Dim) -> Dim {
         Self::eval_dim_with_keys(&self.keys, dim)
     }
 
-    fn eval_dim_with_keys(keys: &ExpressionMap<DimKey>, dim: Dim) -> Dim {
+    fn eval_dim_with_placeholders(&self, dim: &Dim) -> Expression {
         match dim {
-            Dim::Key(DimKey::Placeholder(_, _)) => dim,
-            _ => Dim::Expr(keys.eval_once(&dim.into_expr())),
+            Dim::Key(key) => self.keys.eval_key(key).unwrap(),
+            Dim::Expr(expr) => self.keys.eval_once(&expr),
+        }
+    }
+
+    fn eval_dim_with_keys(keys: &ExpressionMap<DimKey>, dim: &Dim) -> Dim {
+        match dim {
+            Dim::Key(DimKey::Placeholder(_, false)) => dim.clone(),
+            _ => Dim::Expr(keys.eval_once(&dim.to_expr())),
         }
     }
 
@@ -542,7 +546,7 @@ impl Graph {
                     } else if *ph_is_input && *ground_is_input {
                         let key = DimKey::Placeholder(ph.clone(), *ph_is_input);
                         let ground = DimKey::Placeholder(ground.clone(), *ph_is_input);
-                        let ground = ground.as_expr();
+                        let ground = ground.to_expr();
                         self.keys.insert(key, ground.clone());
                         Ok(Dim::Expr(ground))
                     } else {
@@ -550,7 +554,7 @@ impl Graph {
                     }
                 }
                 _ => {
-                    let ground = ground.clone().into_expr();
+                    let ground = ground.to_expr();
 
                     let key = DimKey::Placeholder(ph.clone(), *ph_is_input);
                     self.keys.insert(key, ground.clone());
@@ -558,9 +562,9 @@ impl Graph {
                 }
             },
             _ => {
-                let dim = self.eval_dim(dim.clone());
+                let dim = self.eval_dim(dim);
                 let ground = ground.clone();
-                let ground_eval = self.eval_dim(ground.clone());
+                let ground_eval = self.eval_dim(&ground);
 
                 if dim == ground_eval {
                     Ok(ground)
