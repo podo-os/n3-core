@@ -191,9 +191,7 @@ impl Graph {
             Node::INTRINSIC_IDENTITY => {
                 if last_id.is_some() {
                     // assume that the input has full fixed shapes
-                    if self.shape_state == ShapeState::Fixed(FitState::Weak) {
-                        self.shape_state = ShapeState::Fixed(FitState::Full);
-                    }
+                    self.shape_state = ShapeState::Fixed(FitState::Full);
 
                     Node {
                         name,
@@ -434,8 +432,12 @@ impl Graph {
                     })
                     .collect::<Result<_, _>>()?,
             };
+            let mut shapes = Shapes::Fixed(shapes);
 
-            Ok(Shapes::Fixed(shapes))
+            // update remained placeholders
+            for _ in shapes.try_archive_placeholders(id) {}
+
+            Ok(shapes)
         } else if let Shapes::Dynamic = target_shapes {
             Ok(shapes)
         // dynamic inputs
@@ -536,19 +538,17 @@ impl Graph {
     ) -> Result<Dim, GraphError> {
         match dim {
             Dim::Key(DimKey::Placeholder(ph, ph_is_input)) => {
-                // test input placeholders
-                if *ph_is_input {
-                    let key = DimKey::Placeholder(ph.to_string(), *ph_is_input);
-                    if let Some(dim) = self.keys.get(&key) {
-                        if dim != key.to_expr() && dim != ground.to_expr() {
-                            return Err(GraphError::DifferentDimension {
-                                id,
-                                arg,
-                                axis,
-                                expected: Dim::Expr(dim),
-                                given: ground.clone(),
-                            });
-                        }
+                // test placeholders
+                let key = DimKey::Placeholder(ph.to_string(), *ph_is_input);
+                if let Some(dim) = self.keys.get(&key) {
+                    if dim != key.to_expr() && dim != ground.to_expr() {
+                        return Err(GraphError::DifferentDimension {
+                            id,
+                            arg,
+                            axis,
+                            expected: Dim::Expr(dim),
+                            given: ground.clone(),
+                        });
                     }
                 }
 
@@ -670,7 +670,7 @@ impl Graph {
         match shapes {
             Shapes::Dynamic => Err(GraphError::FullShapeRequired { id }),
             Shapes::Fixed(_) => {
-                for ph in shapes.try_archive_placeholders(id)? {
+                for ph in shapes.try_archive_placeholders(id) {
                     self.find_var(ph, &mut false)?;
                 }
 

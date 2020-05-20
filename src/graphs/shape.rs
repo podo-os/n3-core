@@ -123,12 +123,9 @@ impl Shapes {
         }
     }
 
-    pub fn try_archive_placeholders(
-        &mut self,
-        id: GraphId,
-    ) -> Result<Generator<'_, (), String>, GraphError> {
+    pub fn try_archive_placeholders(&mut self, id: GraphId) -> Generator<'_, (), String> {
         match self {
-            Self::Fixed(shapes) => Ok(Gn::new_scoped(move |mut s| {
+            Self::Fixed(shapes) => Gn::new_scoped(move |mut s| {
                 for shape in shapes.values_mut() {
                     if let Shape::Fixed(dims) = shape {
                         for dim in dims {
@@ -140,8 +137,8 @@ impl Shapes {
                     }
                 }
                 done!();
-            })),
-            Self::Dynamic => Err(GraphError::FullShapeRequired { id }),
+            }),
+            Self::Dynamic => Gn::new_scoped(|_| done!()),
         }
     }
 }

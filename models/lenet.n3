@@ -8,6 +8,8 @@ use Transform
 
 [LeNet]
 
+  * N: number of classes = 10
+
   [Conv2d]
     * kernel size = 5
     * stride = 2
@@ -19,4 +21,4 @@ use Transform
   #1 Conv2d + ReLU    = 32, H/2, W/2
   #2 Conv2d + ReLU    = 64, H/4, W/4
   #3 Transform        = 64* H/4* W/4
-  #4 Linear + Softmax = Oc
+  #4 Linear + Softmax = N

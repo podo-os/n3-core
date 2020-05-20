@@ -6,9 +6,11 @@ use Image Classification
 
 [LeNet Trainer]
 
+  * N: number of classes = 10
+
   [Image Classification]
     * [Optimizer] = Adam
 
-  #0 MNIST = [0: Icc, H, W], [1: Oc]
-  #1 LeNet (#0:0) = Oc
+  #0 MNIST = [0: Icc, H, W], [1: N]
+  #1 LeNet (#0:0, N=10) = N
   #2 Image Classification (#1, #0:1)
