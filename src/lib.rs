@@ -13,3 +13,4 @@ pub use self::graphs::{
 };
 
 pub use n3_parser::ast::UseOrigin;
+pub use symengine::Expression;
