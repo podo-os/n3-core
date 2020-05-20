@@ -2,5 +2,5 @@ extern [Image Classification]
 
   * [Optimizer]
 
-  #0 fixed = [0: classes], [1: targets]
+  #0 fixed = [0: classes], [1: classes]
   #1 fixed = 2

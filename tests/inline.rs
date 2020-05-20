@@ -8,8 +8,11 @@ use ReLU
     #0 Input = 42
     #1 Linear = 12
     #2 [Inner Model]
-        #1 Linear = 22
-    #3 ReLU = 22
+        * weight = 2
+
+        #0 Input = N
+        #1 ReLU + Linear = N * weight + 1
+    #3 ReLU = 25
 ";
 
     let mut root = n3_core::GraphRoot::default();
@@ -21,5 +24,5 @@ use ReLU
     let shapes = graph.get_shapes();
     assert_eq!(shapes.len(), 1);
     assert_eq!(shapes[0].len(), 1);
-    assert_eq!(shapes[0][0], 22u64);
+    assert_eq!(shapes[0][0], 25u64);
 }

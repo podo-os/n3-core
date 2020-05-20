@@ -71,6 +71,9 @@ impl Graph {
             if let Some(alias) = alias {
                 self.variable_aliases.insert(alias, name.clone());
             }
+            if let Some(value) = variable.unwrap_uint() {
+                self.keys.insert(DimKey::Variable(name.clone()), value);
+            }
             self.variables.insert(name.clone(), variable);
         }
         Ok(())
@@ -125,11 +128,7 @@ impl Graph {
         args: Vec<ast::GraphPassArg>,
     ) -> Result<(), CompileError> {
         let last_id = if self.nodes.is_empty() {
-            if id.is_first() {
-                let id = GraphId::new_input();
-                self.attach(id, Node::INTRINSIC_INPUT.to_string(), None, vec![])?;
-                Some(id)
-            } else if id.is_input() {
+            if id.is_input() {
                 None
             } else {
                 return Err(CompileError::GraphError {
@@ -536,31 +535,48 @@ impl Graph {
         axis: usize,
     ) -> Result<Dim, GraphError> {
         match dim {
-            Dim::Key(DimKey::Placeholder(ph, ph_is_input)) => match ground {
-                Dim::Key(DimKey::Placeholder(ground, ground_is_input)) => {
-                    if ph == ground {
-                        Ok(Dim::Key(DimKey::Placeholder(
-                            ground.clone(),
-                            *ground_is_input,
-                        )))
-                    } else if *ph_is_input && *ground_is_input {
-                        let key = DimKey::Placeholder(ph.clone(), *ph_is_input);
-                        let ground = DimKey::Placeholder(ground.clone(), *ph_is_input);
-                        let ground = ground.to_expr();
-                        self.keys.insert(key, ground.clone());
-                        Ok(Dim::Expr(ground))
-                    } else {
-                        Err(GraphError::CannotEstimateShape { id, arg, axis })
+            Dim::Key(DimKey::Placeholder(ph, ph_is_input)) => {
+                // test input placeholders
+                if *ph_is_input {
+                    let key = DimKey::Placeholder(ph.to_string(), *ph_is_input);
+                    if let Some(dim) = self.keys.get(&key) {
+                        if dim != key.to_expr() && dim != ground.to_expr() {
+                            return Err(GraphError::DifferentDimension {
+                                id,
+                                arg,
+                                axis,
+                                expected: Dim::Expr(dim),
+                                given: ground.clone(),
+                            });
+                        }
                     }
                 }
-                _ => {
-                    let ground = ground.to_expr();
 
-                    let key = DimKey::Placeholder(ph.clone(), *ph_is_input);
-                    self.keys.insert(key, ground.clone());
-                    Ok(Dim::Expr(ground))
+                match ground {
+                    Dim::Key(DimKey::Placeholder(ground, ground_is_input)) => {
+                        if ph == ground {
+                            Ok(Dim::Key(DimKey::Placeholder(
+                                ground.clone(),
+                                *ground_is_input,
+                            )))
+                        } else if *ph_is_input && *ground_is_input {
+                            let key = DimKey::Placeholder(ph.clone(), *ph_is_input);
+                            let ground = DimKey::Placeholder(ground.clone(), *ph_is_input);
+                            let ground = ground.to_expr();
+                            self.keys.insert(key, ground.clone());
+                            Ok(Dim::Expr(ground))
+                        } else {
+                            Err(GraphError::CannotEstimateShape { id, arg, axis })
+                        }
+                    }
+                    _ => {
+                        let ground = ground.to_expr();
+                        let key = DimKey::Placeholder(ph.clone(), *ph_is_input);
+                        self.keys.insert(key, ground.clone());
+                        Ok(Dim::Expr(ground))
+                    }
                 }
-            },
+            }
             _ => {
                 let dim = self.eval_dim(dim);
                 let ground = ground.clone();
