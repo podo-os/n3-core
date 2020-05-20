@@ -55,11 +55,7 @@ impl GraphRoot {
         }
     }
 
-    pub fn compile_from_source(
-        &mut self,
-        source: &str,
-        origin: ast::UseOrigin,
-    ) -> Result<Graph, CompileError> {
+    pub fn compile_from_source(&mut self, source: &str) -> Result<Graph, CompileError> {
         let (name, ast) = Self::load_graph_prefab(PathBuf::new(), source)?;
         let graph = ast.compile(self)?;
         self.graphs.insert(name, graph.clone());

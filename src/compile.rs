@@ -8,7 +8,7 @@ impl<'a> Compile<'a> for ast::File {
     type Output = Graph;
 
     fn compile(self, root: Self::Args) -> Result<Self::Output, CompileError> {
-        let mut graph = Graph::default();
+        let mut graph = Graph::new(self.model.is_extern);
 
         for model in self.uses {
             let (name, use_g) = model.compile(root)?;
@@ -50,7 +50,7 @@ impl<'a> Compile<'a> for ast::Model {
                 });
             }
 
-            let prefab = Graph::default();
+            let prefab = Graph::new(true);
 
             (prefab, false)
         } else {

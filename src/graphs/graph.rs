@@ -10,7 +10,7 @@ use n3_parser::ast;
 use symengine::{Expression, ExpressionMap};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Graph {
     variables: HashMap<String, Variable>,
     variable_aliases: HashMap<String, String>,
@@ -20,9 +20,23 @@ pub struct Graph {
 
     nodes: BTreeMap<GraphId, Node>,
     shape_state: ShapeState,
+
+    is_extern: bool,
 }
 
 impl Graph {
+    pub(crate) fn new(is_extern: bool) -> Self {
+        Self {
+            variables: HashMap::new(),
+            variable_aliases: HashMap::new(),
+            keys: ExpressionMap::new(),
+            graphs: HashMap::new(),
+            nodes: BTreeMap::new(),
+            shape_state: ShapeState::default(),
+            is_extern,
+        }
+    }
+
     pub(crate) fn new_child(&mut self) -> Self {
         Self {
             variables: HashMap::new(),
@@ -31,25 +45,44 @@ impl Graph {
             graphs: self.graphs.clone(),
             nodes: BTreeMap::new(),
             shape_state: ShapeState::default(),
+            is_extern: false,
         }
     }
 }
 
 impl Graph {
-    pub fn get_shapes(&self) -> Vec<Vec<Expression>> {
-        match &self.nodes.last_key_value().unwrap().1.shapes {
-            Shapes::Dynamic => unreachable!(),
-            Shapes::Fixed(shapes) => shapes
-                .values()
-                .map(|s| match s {
-                    Shape::Dynamic => unreachable!(),
-                    Shape::Fixed(dims) => dims
-                        .iter()
-                        .map(|d| self.eval_dim_with_placeholders(d))
+    pub fn is_extern(&self) -> bool {
+        self.is_extern
+    }
+
+    pub fn get_variables(&self) -> &HashMap<String, Variable> {
+        &self.variables
+    }
+
+    pub fn get_nodes(&self) -> &BTreeMap<GraphId, Node> {
+        &self.nodes
+    }
+
+    pub fn get_shapes(&self) -> BTreeMap<GraphId, Vec<Vec<Expression>>> {
+        self.nodes
+            .iter()
+            .map(|(id, node)| {
+                let shapes = match &node.shapes {
+                    Shapes::Dynamic => unreachable!(),
+                    Shapes::Fixed(shapes) => shapes
+                        .values()
+                        .map(|s| match s {
+                            Shape::Dynamic => unreachable!(),
+                            Shape::Fixed(dims) => dims
+                                .iter()
+                                .map(|d| self.eval_dim_with_placeholders(d))
+                                .collect(),
+                        })
                         .collect(),
-                })
-                .collect(),
-        }
+                };
+                (*id, shapes)
+            })
+            .collect()
     }
 }
 
@@ -230,7 +263,10 @@ impl Graph {
             }
         };
         if node.inputs.is_empty() {
-            node.inputs = vec![GraphIdArg::with_id(id)].into_iter().collect();
+            let inputs = last_id
+                .map(|id| vec![GraphIdArg::with_id(id)])
+                .unwrap_or_default();
+            node.inputs = inputs.into_iter().collect();
         }
 
         self.nodes.insert(id, node);
@@ -383,8 +419,8 @@ impl Graph {
         Ok(Node {
             name: model_name,
             graph: Some(graph),
-            shapes,
             inputs,
+            shapes,
         })
     }
 

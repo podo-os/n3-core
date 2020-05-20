@@ -250,6 +250,21 @@ pub enum DimKey {
     Placeholder(String, bool),
 }
 
+impl DimKey {
+    pub fn try_from_expr(expr: &Expression) -> Option<Self> {
+        let expr_str = expr.as_str();
+        if expr_str.find(' ').is_some() {
+            None
+        } else if expr_str.starts_with("var_") {
+            Some(Self::Variable(expr_str[4..].to_string()))
+        } else if expr_str.starts_with("ph_") {
+            Some(Self::Placeholder(expr_str[3..].to_string(), true))
+        } else {
+            None
+        }
+    }
+}
+
 impl ExpressionMapKey for DimKey {
     fn to_string(&self) -> String {
         match self {

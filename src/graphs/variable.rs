@@ -3,7 +3,7 @@ use crate::error::GraphError;
 pub use n3_parser::ast::Value;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Variable {
     pub description: String,
     pub ty: ValueType,

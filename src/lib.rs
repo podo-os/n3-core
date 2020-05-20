@@ -7,6 +7,8 @@ mod compile;
 mod error;
 mod graphs;
 
-pub use self::graphs::{GraphRoot, Graph};
+pub use self::graphs::{
+    DimKey, Graph, GraphId, GraphIdArg, GraphRoot, Node, Value, ValueType, Variable,
+};
 
 pub use n3_parser::ast::UseOrigin;

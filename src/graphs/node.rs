@@ -7,8 +7,8 @@ use super::shape::Shapes;
 pub struct Node {
     pub name: String,
     pub graph: Option<Graph>,
-    pub shapes: Shapes,
     pub inputs: Vec<GraphIdArg>,
+    pub(crate) shapes: Shapes,
 }
 
 impl Node {
@@ -24,8 +24,8 @@ impl Default for Node {
         Self {
             name: Self::INTRINSIC_GENERIC.to_string(),
             graph: None,
-            shapes: Shapes::Dynamic,
             inputs: vec![],
+            shapes: Shapes::Dynamic,
         }
     }
 }
