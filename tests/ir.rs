@@ -123,18 +123,21 @@ use Transform
     let first_shapes = shapes.values().next().unwrap();
     assert_eq!(first_shapes.len(), 1);
     assert_eq!(first_shapes[0].len(), 3);
-    assert_eq!(first_shapes[0][1], 28u64);
-    assert_eq!(first_shapes[0][2], 28u64);
-    assert_eq!(DimKey::try_from_expr(&first_shapes[0][1]), None);
-    assert_eq!(DimKey::try_from_expr(&first_shapes[0][2]), None);
-    assert_eq!(
-        DimKey::try_from_expr(&first_shapes[0][0]),
-        Some(DimKey::Placeholder("Ic".to_string(), true))
-    );
+    assert_eq!(first_shapes[0][1], Dim::Expr(28u64.into()));
+    assert_eq!(first_shapes[0][2], Dim::Expr(28u64.into()));
+    assert_eq!(is_variable(&first_shapes[0][0]), false); // NO placeholders
+    assert_eq!(is_variable(&first_shapes[0][1]), false);
+    assert_eq!(is_variable(&first_shapes[0][2]), false);
 
     let last_shapes = shapes.values().rev().next().unwrap();
     assert_eq!(last_shapes.len(), 1);
     assert_eq!(last_shapes[0].len(), 1);
-    assert_eq!(last_shapes[0][0], 10u64);
-    assert_eq!(DimKey::try_from_expr(&last_shapes[0][0]), None);
+    assert_eq!(is_variable(&last_shapes[0][0]), true); // number of channels
+}
+
+fn is_variable(dim: &Dim) -> bool {
+    match dim {
+        Dim::Key(DimKey::Variable(_)) => true,
+        _ => false,
+    }
 }

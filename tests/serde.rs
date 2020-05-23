@@ -26,5 +26,5 @@ use ReLU
     let last_shapes = shapes.values().rev().next().unwrap();
     assert_eq!(last_shapes.len(), 1);
     assert_eq!(last_shapes[0].len(), 1);
-    assert_eq!(last_shapes[0][0], 22u64);
+    assert_eq!(last_shapes[0][0], n3_core::Dim::Expr(22u64.into()));
 }

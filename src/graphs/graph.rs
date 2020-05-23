@@ -7,7 +7,7 @@ use super::variable::{Value, ValueType, Variable};
 use crate::error::{CompileError, GraphError, NonExternModelError};
 
 use n3_parser::ast;
-use symengine::{Expression, ExpressionMap};
+use symengine::ExpressionMap;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
@@ -63,7 +63,7 @@ impl Graph {
         &self.nodes
     }
 
-    pub fn get_shapes(&self) -> BTreeMap<GraphId, Vec<Vec<Expression>>> {
+    pub fn get_shapes(&self) -> BTreeMap<GraphId, Vec<Vec<Dim>>> {
         self.nodes
             .iter()
             .map(|(id, node)| {
@@ -73,10 +73,9 @@ impl Graph {
                         .values()
                         .map(|s| match s {
                             Shape::Dynamic => unreachable!(),
-                            Shape::Fixed(dims) => dims
-                                .iter()
-                                .map(|d| self.eval_dim_with_placeholders(d))
-                                .collect(),
+                            Shape::Fixed(dims) => {
+                                dims.iter().map(|d| self.eval_dim_for_output(d)).collect()
+                            }
                         })
                         .collect(),
                 };
@@ -550,10 +549,13 @@ impl Graph {
         Self::eval_dim_with_keys(&self.keys, dim)
     }
 
-    fn eval_dim_with_placeholders(&self, dim: &Dim) -> Expression {
+    fn eval_dim_for_output(&self, dim: &Dim) -> Dim {
         match dim {
-            Dim::Key(key) => self.keys.eval_key(key).unwrap(),
-            Dim::Expr(expr) => self.keys.eval_once(&expr),
+            Dim::Key(key) => match key {
+                DimKey::Placeholder(_, _) => Dim::Expr(self.keys.eval_once(&key.to_expr())),
+                _ => dim.clone(),
+            },
+            _ => dim.clone(),
         }
     }
 
