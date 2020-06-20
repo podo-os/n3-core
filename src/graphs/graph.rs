@@ -169,7 +169,7 @@ impl Graph {
                 });
             }
         } else {
-            self.nodes.last_key_value().map(|kv| *kv.0)
+            self.nodes.iter().rev().next().map(|kv| *kv.0)
         };
 
         if let Some(last_id) = last_id {
@@ -308,7 +308,7 @@ impl Graph {
         let mut shapes = Shapes::Fixed(shapes);
         let shapes_to = shapes.clone();
 
-        let (&id, last_node) = self.nodes.last_key_value().unwrap();
+        let (&id, last_node) = self.nodes.iter().rev().next().unwrap();
         let model = last_node.name.clone();
         let mut last_shapes = last_node.shapes.clone();
 
@@ -636,7 +636,7 @@ impl Graph {
     }
 
     fn get_last_node_id(&self) -> &GraphId {
-        self.nodes.last_key_value().unwrap().0
+        self.nodes.iter().rev().next().unwrap().0
     }
 
     fn get_last_specific_node_id(
@@ -654,15 +654,15 @@ impl Graph {
     }
 
     fn get_last_node_name(&self) -> &str {
-        &self.nodes.last_key_value().unwrap().1.name
+        &self.nodes.iter().rev().next().unwrap().1.name
     }
 
     fn get_first_shapes(&self) -> &Shapes {
-        &self.nodes.first_key_value().unwrap().1.shapes
+        &self.nodes.iter().next().unwrap().1.shapes
     }
 
     fn get_last_shapes(&self, inputs: Option<&[GraphIdArg]>) -> Shapes {
-        let (last_id, last_node) = &self.nodes.last_key_value().unwrap();
+        let (last_id, last_node) = &self.nodes.iter().rev().next().unwrap();
         let inputs = inputs
             .map(|a| a.to_vec())
             .or_else(|| Some(vec![GraphIdArg::with_id(**last_id)]))
@@ -697,7 +697,7 @@ impl Graph {
     }
 
     fn set_last_shapes(&mut self, shapes: Shapes) {
-        self.nodes.last_entry().unwrap().get_mut().shapes = shapes;
+        self.nodes.iter_mut().rev().next().unwrap().1.shapes = shapes;
     }
 
     fn set_last_shapes_from_child(
