@@ -552,7 +552,7 @@ impl Graph {
     fn eval_dim_for_output(&self, dim: &Dim) -> Dim {
         match dim {
             Dim::Key(key) => match key {
-                DimKey::Placeholder(_, _) => Dim::Expr(self.keys.eval_once(&key.to_expr())),
+                DimKey::Placeholder(_, false) => Dim::Expr(self.keys.eval_once(&key.to_expr())),
                 _ => dim.clone(),
             },
             _ => dim.clone(),
