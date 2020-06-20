@@ -3,5 +3,5 @@ extern [Conv2d]
   * S: stride = 1
   * padding
 
-  #0 fixed = Ic, H, W
+  #0 fixed = Ic,   H,   W
   #1 fixed = Oc, H/S, W/S

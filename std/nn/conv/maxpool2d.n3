@@ -1,0 +1,6 @@
+extern [MaxPool2d]
+  * K: kernel size = 1
+  // TODO: detach stride from kernel size
+
+  #0 fixed = Ic,   H,   W
+  #1 fixed = Oc, H/K, W/K

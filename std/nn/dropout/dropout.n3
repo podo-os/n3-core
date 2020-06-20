@@ -1,0 +1,6 @@
+extern [Dropout]
+
+  * probability = 0.5
+
+  #0 dynamic
+  #1 identity
